@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-12T10:55:48.255Z",
+  "checkedAt": "2026-09-12T12:19:00.811Z",
   "origin": "https://powermatch.zenmeasure.space",
   "result": "passed",
   "checks": [
@@ -27,6 +27,22 @@
       "status": 403
     },
     {
+      "path": "/api/ai/models",
+      "status": 200
+    },
+    {
+      "path": "/api/admin/ai",
+      "status": 403
+    },
+    {
+      "path": "/api/admin/ai/usage",
+      "status": 403
+    },
+    {
+      "path": "/api/admin/ai/diagnostics",
+      "status": 403
+    },
+    {
       "path": "/assets/zenmeasure-blue.png",
       "status": 200
     },
@@ -43,18 +59,7 @@
       "status": 200,
       "averageUa": 13.23529411764706,
       "runtimeHours": 75.41310857268991
-    },
-    {
-      "path": "/api/ai/models",
-      "status": 200,
-      "models": 0
-    },
-    {
-      "path": "/api/admin/ai",
-      "status": 403
     }
   ],
-  "mail": "Provider accepted; user separately confirmed successful login and admin access. No email sent by this script.",
-  "applicationCommit": "3e7f41c",
-  "workerVersion": "0b874b94-1e83-44ea-ae2e-a26e3291486c"
+  "mail": "Provider accepted; user separately confirmed successful login and admin access. No email sent by this script."
 }
