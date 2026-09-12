@@ -87,6 +87,12 @@ type Usage = {
   cost_cny: number;
   unknown_cost: number;
   latest: string;
+  plan_fee?: number | null;
+  plan_period?: "month" | "year" | null;
+  plan_cycle_calls?: number;
+  plan_projected_calls?: number;
+  plan_cost_per_call?: number | null;
+  plan_cost_per_call_cny?: number | null;
 };
 function summary(rows: Usage[]) {
   return rows.reduce(
@@ -125,6 +131,8 @@ const configFields = [
   "requestPrice",
   "currency",
   "billingMode",
+  "planFee",
+  "planPeriod",
   "priceSource",
   "priceNote",
 ] as const;
@@ -254,6 +262,8 @@ export function AIAdmin({ locale }: { locale: Locale }) {
         requestPrice: null,
         currency: "CNY",
         billingMode: "tokens",
+        planFee: null,
+        planPeriod: "month",
         priceSource: "",
         priceNote: "",
         enabled: true,
@@ -551,11 +561,27 @@ export function AIAdmin({ locale }: { locale: Locale }) {
             >
               <strong>{m.name || "新模型"}</strong>
               <span>
-                {m.enabled ? "当前已启用" : "当前已停用"} ·{" "}
-                {m.keyConfigured ? "Key 已配置" : "Key 未配置"}
+                <b
+                  className={
+                    m.enabled ? "ms-state-available" : "ms-state-unavailable"
+                  }
+                >
+                  {m.enabled ? "当前已启用" : "当前已停用"}
+                </b>{" "}
+                · {m.keyConfigured ? "Key 已配置" : "Key 未配置"}
               </span>
               <span>
-                上次健康检查：{health(m.health)} · {beijingTime(m.checkedAt)}
+                上次健康检查：
+                <b
+                  className={
+                    m.health === "ok"
+                      ? "ms-state-available"
+                      : "ms-state-unavailable"
+                  }
+                >
+                  {health(m.health)}
+                </b>{" "}
+                · {beijingTime(m.checkedAt)}
                 {m.latencyMs != null ? ` · ${m.latencyMs} ms` : ""}
               </span>
             </button>
@@ -878,6 +904,45 @@ export function AIAdmin({ locale }: { locale: Locale }) {
                     <option value="plan">套餐 / 待确认</option>
                   </select>
                 </label>
+                {m.billingMode === "plan" && (
+                  <>
+                    <label className="field">
+                      <span>套餐价格</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="10000"
+                        step="any"
+                        value={m.planFee ?? ""}
+                        disabled={busy}
+                        placeholder="例如 99"
+                        onChange={(e) =>
+                          update(m.id, {
+                            planFee:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>套餐周期</span>
+                      <select
+                        value={m.planPeriod}
+                        disabled={busy}
+                        onChange={(e) =>
+                          update(m.id, {
+                            planPeriod: e.target.value as "month" | "year",
+                          })
+                        }
+                      >
+                        <option value="month">每月</option>
+                        <option value="year">每年</option>
+                      </select>
+                    </label>
+                  </>
+                )}
                 <label className="field ms-note">
                   <span>价格备注 / 套餐说明</span>
                   <input
@@ -893,7 +958,14 @@ export function AIAdmin({ locale }: { locale: Locale }) {
               <div className="ms-row-foot">
                 <span>
                   {m.billingMode === "plan"
-                    ? "套餐费用不按 Token 推算"
+                    ? (() => {
+                        const estimate = rows.find(
+                          (r) => r.model_id === m.id && r.period === "total",
+                        );
+                        return m.planFee == null
+                          ? "请填写结构化套餐价格，系统才能估算调用摊销成本"
+                          : `${m.planFee} ${m.currency}/${m.planPeriod === "month" ? "月" : "年"}；${estimate?.plan_cost_per_call_cny != null ? `按本账期 ${estimate.plan_cycle_calls} 次调用推算约 ${rmb(estimate.plan_cost_per_call_cny)}/次（预计本账期 ${estimate.plan_projected_calls} 次）` : "产生调用后按本账期实际使用速度估算每次摊销"}`;
+                      })()
                     : `输入 ${m.inputPrice ?? "待确认"} / 输出 ${m.outputPrice ?? "待确认"} ${m.currency}/百万 Token；单请求 ${m.requestPrice ?? "待确认"} ${m.currency}`}
                 </span>
                 {m.health !== "ok" && m.health !== "unchecked" && (

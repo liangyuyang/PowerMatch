@@ -57,3 +57,9 @@ Root cause confirmed by user-triggered production diagnostics (DeepSeek/Grok/MiM
 Post-redirect-fix production health: DeepSeek, Grok and Qwen passed user-triggered real health checks. MiMo returned HTTP 401; MiniMax returned HTTP 200 but structured JSON parsing failed. Added MiniMax reasoning_split (with bounded leading think-block normalization), native MiMo api-key header/max_completion_tokens, and explicit Token Plan credential/endpoint mismatch feedback before a request. Official MiMo Token Plan regional endpoints are allowed but never automatically substituted; changing endpoint still requires explicit Key re-entry. No existing model/Key was changed automatically. 36 unit tests pass.
 
 Official references checked: https://platform.minimax.cn/docs/api-reference/text-chat-openai ; https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/quick-access ; https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call . MiniMax and MiMo latest real health checks still require user-triggered verification after this adapter update.
+
+## Default and Token Plan estimation — 2026-09-12
+
+When no default exists, migration 0007 selects the earliest checked enabled healthy model; later, the first newly successful health check also becomes default. Manual default selection remains available. Availability and failure labels use high-contrast bold green/red states.
+
+Plan models store a structured fee and month/year period. Per-call allocation is estimated from current billing-cycle usage pace: projected cycle calls = calls so far / elapsed fraction of the cycle; estimated unit allocation = plan fee / projected calls. The UI shows fee, cycle, calls so far, projected calls and estimated RMB per call. This is a management allocation estimate, not a provider charge. With no calls, or with USD pricing and no FX rate, the estimate remains pending. Token-priced invocation accounting remains unchanged.

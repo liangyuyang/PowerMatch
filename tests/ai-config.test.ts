@@ -7,6 +7,7 @@ import {
   secretTarget,
   csvCell,
   beijingTime,
+  planUnitEstimate,
 } from "../src/shared/ai-config";
 import { providerCall } from "../worker/ai";
 const cfg = modelConfigSchema.parse({
@@ -65,6 +66,25 @@ describe("AI billing and destinations", () => {
     expect(costCny(10, "USD", 7)).toBe(70);
     expect(costCny(0, "CNY", null)).toBe(0);
   });
+  it("estimates plan cost from current billing-cycle usage pace", () => {
+    expect(planUnitEstimate(100, 10, 0.5)).toEqual({
+      projectedCalls: 20,
+      unitCost: 5,
+    });
+    expect(planUnitEstimate(1200, 0, 0.5)).toEqual({
+      projectedCalls: 0,
+      unitCost: null,
+    });
+    const plan = modelConfigSchema.parse({
+      ...cfg,
+      billingMode: "plan",
+      planFee: 99,
+      planPeriod: "month",
+    });
+    expect(plan.planFee).toBe(99);
+    expect(plan.planPeriod).toBe("month");
+    expect(estimateCost(plan, 10, 20)).toBeNull();
+  });
   it("exports safe CSV and explicit Beijing time", () => {
     expect(csvCell('=HYPERLINK("evil")')).toBe('"\'=HYPERLINK(""evil"")"');
     expect(beijingTime("2026-09-12 18:00:00")).toBe("2026-09-13 02:00:00");
@@ -74,27 +94,25 @@ describe("AI billing and destinations", () => {
 describe("native Gemini adapter, mocked transport", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("uses native headers and includes thinking output in billing", async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValue(
-        Response.json({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  { thought: true, text: "internal" },
-                  { text: '{"ok":true}' },
-                ],
-              },
+    const fetcher = vi.fn().mockResolvedValue(
+      Response.json({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { thought: true, text: "internal" },
+                { text: '{"ok":true}' },
+              ],
             },
-          ],
-          usageMetadata: {
-            promptTokenCount: 10,
-            candidatesTokenCount: 3,
-            thoughtsTokenCount: 5,
           },
-        }),
-      );
+        ],
+        usageMetadata: {
+          promptTokenCount: 10,
+          candidatesTokenCount: 3,
+          thoughtsTokenCount: 5,
+        },
+      }),
+    );
     vi.stubGlobal("fetch", fetcher);
     const result = await providerCall(
       {

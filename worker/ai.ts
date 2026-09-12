@@ -608,9 +608,10 @@ export function registerAI(app: App) {
     );
     if (reply.status === 429) return err(reply.error!, 429);
     const healthUpdate = await c.env.DB.prepare(
-      "UPDATE ai_models SET health=?,checked_at=CURRENT_TIMESTAMP,latency_ms=?,diagnostic_json=? WHERE id=? AND revision=?",
+      "UPDATE ai_models SET health=?,is_default=CASE WHEN ?='ok' AND enabled=1 AND NOT EXISTS(SELECT 1 FROM ai_models WHERE is_default=1) THEN 1 ELSE is_default END,checked_at=CURRENT_TIMESTAMP,latency_ms=?,diagnostic_json=? WHERE id=? AND revision=?",
     )
       .bind(
+        reply.error ?? "ok",
         reply.error ?? "ok",
         Date.now() - started,
         reply.diagnostic ? JSON.stringify(reply.diagnostic) : null,

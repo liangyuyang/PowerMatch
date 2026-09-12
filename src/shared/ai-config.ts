@@ -114,6 +114,8 @@ export const modelConfigSchema = z
     billingMode: z
       .enum(["tokens", "request", "tokens_request", "plan"])
       .default("tokens"),
+    planFee: price.default(null),
+    planPeriod: z.enum(["month", "year"]).default("month"),
     priceSource: z
       .string()
       .trim()
@@ -184,6 +186,24 @@ export function costCny(
       : usdToCny === null
         ? null
         : cost * usdToCny;
+}
+export function planUnitEstimate(
+  planFee: number,
+  calls: number,
+  elapsedFraction: number,
+) {
+  if (
+    !Number.isFinite(planFee) ||
+    planFee < 0 ||
+    !Number.isSafeInteger(calls) ||
+    calls < 1 ||
+    !Number.isFinite(elapsedFraction) ||
+    elapsedFraction <= 0 ||
+    elapsedFraction > 1
+  )
+    return { projectedCalls: 0, unitCost: null };
+  const projectedCalls = Math.max(calls, Math.round(calls / elapsedFraction));
+  return { projectedCalls, unitCost: planFee / projectedCalls };
 }
 export function csvCell(value: unknown) {
   let s = String(value ?? "");

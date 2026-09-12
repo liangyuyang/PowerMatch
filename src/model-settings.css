@@ -236,6 +236,14 @@
   background: #fff0ef;
   color: #a5281d;
 }
+.ms-state-available {
+  color: #08783f;
+  font-weight: 800;
+}
+.ms-state-unavailable {
+  color: #b42318;
+  font-weight: 800;
+}
 .ms-edit-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

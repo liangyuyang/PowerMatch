@@ -79,3 +79,9 @@ Official references checked: https://platform.minimax.cn/docs/api-reference/text
 
 
 Latest deployed application: 81876cc (origin/main); Worker 3f41a08d-310c-4736-8f3c-c9ddf9966800. Diagnostic migration 0006 is applied. Current user-confirmed production evidence: three APIs working (DeepSeek/Grok/Qwen). Latest MiniMax format fix is deployed and awaiting recheck; user will check MiMo Key independently. Production retains 5 model rows, 1 legacy provider Key and 5 per-model Keys (read-only counts at 20:49 Beijing). No credentials were viewed, copied or changed by this task.
+
+## Default model and Token Plan estimation — 2026-09-12, Home PC / HOMEPC
+
+Added automatic default fallback: migration 0007 selects the earliest checked enabled healthy model when no default exists, and future first successful checks do the same. Admin can still switch the default. Availability states now use bold high-contrast green/red text.
+
+Added structured plan fee and month/year period. The admin estimates per-call allocation using current billing-cycle calls and elapsed-cycle pace, and explicitly displays observed/projected calls. This is an allocation estimate, not provider per-request billing; no calls or missing USD FX remains pending. Validation: 37 unit tests, 48 local API assertions, production build, and local Edge desktop/mobile checks including plan fields and status typography. Production migration/deployment and smoke checkpoint follow.

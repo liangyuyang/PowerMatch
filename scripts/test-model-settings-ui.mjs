@@ -7,17 +7,14 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   const origin = "http://127.0.0.1:5173";
-  await page
-    .context()
-    .addCookies([
-      {
-        name: "pm_session",
-        value: JSON.parse(
-          fs.readFileSync("tmp/test-admin-browser.json", "utf8"),
-        ).token,
-        url: origin,
-      },
-    ]);
+  await page.context().addCookies([
+    {
+      name: "pm_session",
+      value: JSON.parse(fs.readFileSync("tmp/test-admin-browser.json", "utf8"))
+        .token,
+      url: origin,
+    },
+  ]);
   await page.addInitScript(() => localStorage.setItem("pm-language", "zh"));
   await page.goto(origin);
   await page.getByRole("button", { name: /管理后台|Admin/ }).click();
@@ -35,6 +32,19 @@ try {
     "https://generativelanguage.googleapis.com/v1beta/openai",
   );
   await row.getByLabel("显示名称", { exact: true }).fill("未保存草稿");
+  await row.locator('label').filter({hasText:'计费方式'}).locator('select').selectOption("plan");
+  await row.locator('label').filter({hasText:'套餐价格'}).locator('input').fill("99");
+  await row.locator('label').filter({hasText:'套餐周期'}).locator('select').selectOption("month");
+  assert.match(
+    await row.getByText(/99 CNY\/月/).innerText(),
+    /产生调用后|推算约/,
+  );
+  const available = panel.locator(".ms-state-available").first();
+  if (await available.count())
+    assert.equal(
+      await available.evaluate((e) => getComputedStyle(e).fontWeight),
+      "800",
+    );
   await panel.getByRole("button", { name: "刷新统计", exact: true }).click();
   assert.equal(
     await row.getByLabel("显示名称", { exact: true }).inputValue(),
@@ -75,6 +85,8 @@ try {
         "draft survives stats refresh/reload cancel/navigation",
         "expanded desktop/mobile",
         "real local diagnostics",
+        "distinct availability typography",
+        "structured monthly plan price and estimate",
       ],
     }),
   );

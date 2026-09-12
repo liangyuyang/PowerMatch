@@ -6,6 +6,7 @@ import {
   modelConfigSchema,
   runtimeIdentity,
   secretTarget,
+  planUnitEstimate,
   type AIConfig,
 } from "../src/shared/ai-config";
 import { readPrices } from "./ai-pricing";
@@ -228,8 +229,82 @@ export function registerAIAdmin(
   app.get("/api/admin/ai/usage", async (c) => {
     if (!c.get("user")?.admin) return err("admin-required", 403);
     const rows = await c.env.DB.prepare(usageSql).all();
+    const models = await c.env.DB.prepare(
+      "SELECT id,config_json FROM ai_models",
+    ).all<{ id: string; config_json: string }>();
+    const settings = await c.env.DB.prepare(
+      "SELECT settings_json FROM ai_settings WHERE id=1",
+    ).first<{ settings_json: string }>();
+    const usdToCny: number | null = JSON.parse(
+      settings!.settings_json,
+    ).usdToCny;
+    const now = new Date(),
+      beijing = new Date(now.getTime() + 8 * 3600000),
+      year = beijing.getUTCFullYear(),
+      month = beijing.getUTCMonth(),
+      day = beijing.getUTCDate();
+    const monthDays = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(),
+      yearDays = (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86400000;
+    const dayFraction =
+      (beijing.getUTCHours() * 3600 +
+        beijing.getUTCMinutes() * 60 +
+        beijing.getUTCSeconds()) /
+      86400;
+    const starts = {
+      month: new Date(Date.UTC(year, month, 1) - 8 * 3600000)
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " "),
+      year: new Date(Date.UTC(year, 0, 1) - 8 * 3600000)
+        .toISOString()
+        .slice(0, 19)
+        .replace("T", " "),
+    };
+    const elapsed = {
+      month: Math.max((day - 1 + dayFraction) / monthDays, 1 / monthDays),
+      year: Math.max(
+        ((Date.UTC(year, month, day) - Date.UTC(year, 0, 1)) / 86400000 +
+          dayFraction) /
+          yearDays,
+        1 / yearDays,
+      ),
+    };
+    const plan = new Map<string, Record<string, unknown>>();
+    for (const row of models.results) {
+      const cfg = modelConfigSchema.parse(JSON.parse(row.config_json));
+      if (cfg.billingMode !== "plan" || cfg.planFee === null) continue;
+      const count = await c.env.DB.prepare(
+        "SELECT COUNT(*) count FROM ai_invocations WHERE model_id=? AND created_at>=?",
+      )
+        .bind(row.id, starts[cfg.planPeriod])
+        .first<{ count: number }>();
+      const calls = count?.count ?? 0,
+        { projectedCalls: projected, unitCost: unit } = planUnitEstimate(
+          cfg.planFee,
+          calls,
+          elapsed[cfg.planPeriod],
+        );
+      plan.set(row.id, {
+        plan_fee: cfg.planFee,
+        plan_period: cfg.planPeriod,
+        plan_cycle_calls: calls,
+        plan_projected_calls: projected,
+        plan_cost_per_call: unit,
+        plan_cost_per_call_cny:
+          unit === null
+            ? null
+            : cfg.currency === "CNY"
+              ? unit
+              : usdToCny === null
+                ? null
+                : unit * usdToCny,
+      });
+    }
     return c.json({
-      rows: rows.results,
+      rows: rows.results.map((row: any) => ({
+        ...row,
+        ...(plan.get(row.model_id) ?? {}),
+      })),
       checkedAt: new Date().toISOString(),
       timezone: "Asia/Shanghai",
     });
