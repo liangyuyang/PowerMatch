@@ -15,12 +15,12 @@ Implemented initial workbench, comparison snapshots/common conditions, Tiny load
 - D1 powermatch-db: c616a8ac-15d8-4bfa-ba6d-64e8b6e3e957. R2 powermatch-specs.
 - Three remote migrations applied. Independent production query confirmed 1 case and 35 component entries; no synthetic test data was deployed.
 - 15 unit tests passed; 34 local API assertions passed, including one-use login tokens, private revisions, role/guest ownership and stale writes. Local automated tests sent no email. A separate production Magic Link was accepted by Resend and the user confirmed successful sign-in and access to the admin screen.
-- TypeScript + Vite production build passed. Main chunk about 773 KB (230 KB gzip); splitting remains a performance improvement.
+- TypeScript + Vite production build passed. Main chunk about 775 KB (230 KB gzip); splitting remains a performance improvement.
 - Browser observed desktop workbench, battery results and comparison. Escape/visible-close preserved edited draft. Subsequent browser connection timed out; complete responsive, click-away, focus-return and print acceptance remain unverified.
 
 ## Release status
 
-Initial implementation is ready for a preview deployment, not completion of every planned feature. Commit/push/deployment IDs and URL checks are recorded below after execution.
+Initial implementation 0.1.0 is deployed and available for review, not completion of every planned feature. Application code commit: d22d9ed on main; pushed to origin/main. Production Worker version: 41c5a3e9-aaa4-4f6e-9cb6-2cbcc60b5897. Later handoff-only commits do not change application artifacts.
 
 ## Open work / risks
 
@@ -33,12 +33,16 @@ Initial implementation is ready for a preview deployment, not completion of ever
 
 ## Next step
 
-Finish the recorded release, then continue full browser QA and the explicitly listed engineering/product backlog. Do not present planned features as implemented.
+Continue full browser QA and the explicitly listed engineering/product backlog. Do not present planned features as implemented.
 
 ## Verified production checkpoint
 
 - URL: https://powermatch.zenmeasure.space
-- Initial successful deployment: 70858eed-4516-4c43-b493-b28db7a193a4 (code 0df7e69). Final patch deployment is recorded after publication.
+- Final successful deployment: 41c5a3e9-aaa4-4f6e-9cb6-2cbcc60b5897 (application code d22d9ed).
 - Homepage, health, public cases and component API returned HTTP 200.
 - RESEND_API_KEY secret name confirmed; health reports emailConfigured=true. The user confirmed receiving/using the sign-in link and entering Admin.
 - The browser automation connection is currently unavailable (CDP/fetch timeouts), so responsive/print/joint visual QA remains blocked despite the successful manual login acceptance.
+
+## Cross-device handoff
+
+This page is copied to the Obsidian PowerMatch project page. The Obsidian main checkout contains unrelated changes and diverged history, so only this handoff is synchronized using an isolated origin/main worktree. No unrelated files, commits or Z0 rules are changed. No new cross-project permanent rule was introduced in this task.

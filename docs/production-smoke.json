@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-12T09:44:57.202Z",
+  "checkedAt": "2026-09-12T09:49:12.408Z",
   "origin": "https://powermatch.zenmeasure.space",
   "result": "passed",
   "checks": [
@@ -45,5 +45,7 @@
       "runtimeHours": 75.41310857268991
     }
   ],
-  "mail": "Provider accepted; user separately confirmed successful login and admin access. No email sent by this script."
+  "mail": "Provider accepted; user separately confirmed successful login and admin access. No email sent by this script.",
+  "applicationCommit": "d22d9ed",
+  "deploymentVersion": "41c5a3e9-aaa4-4f6e-9cb6-2cbcc60b5897"
 }
