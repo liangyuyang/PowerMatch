@@ -91,6 +91,10 @@ describe("physical model", () => {
     d.mode = "battery";
     const r = calculate(d);
     expect(r.runtimeHours).toBeNull();
+    expect(r.batteryEstimateHours).toBeCloseTo(
+      225000 / (r.averageUa + d.regulation.iqUa!),
+      5,
+    );
     expect(r.warnings).toContain("horizon-lower-bound");
   });
   it("conserves energy with harvest, losses and curtailment", () => {

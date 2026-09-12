@@ -1,0 +1,49 @@
+{
+  "checkedAt": "2026-09-12T09:44:57.202Z",
+  "origin": "https://powermatch.zenmeasure.space",
+  "result": "passed",
+  "checks": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/api/health",
+      "status": 200,
+      "emailConfigured": true
+    },
+    {
+      "path": "/api/cases?scope=public",
+      "status": 200,
+      "count": 1
+    },
+    {
+      "path": "/api/components",
+      "status": 200,
+      "count": 35
+    },
+    {
+      "path": "/api/admin",
+      "status": 403
+    },
+    {
+      "path": "/assets/zenmeasure-blue.png",
+      "status": 200
+    },
+    {
+      "path": "/assets/MOT-U125-body-white.png",
+      "status": 200
+    },
+    {
+      "path": "/assets/MHO-C404-body-white.png",
+      "status": 200
+    },
+    {
+      "path": "/api/calculate",
+      "status": 200,
+      "averageUa": 13.23529411764706,
+      "runtimeHours": 75.41310857268991
+    }
+  ],
+  "mail": "Provider accepted; user separately confirmed successful login and admin access. No email sent by this script."
+}

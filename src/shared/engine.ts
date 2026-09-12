@@ -17,6 +17,7 @@ export interface Result {
   loadUw: number;
   runtimeHours: number | null;
   darkHours: number | null;
+  batteryEstimateHours: number | null;
   weekLightHours: number;
   longestDarkHours: number;
   generationWeekJ: number | null;
@@ -65,6 +66,7 @@ export function calculate(input: Design): Result {
     loadUw: average * d.load.voltage,
     runtimeHours: null,
     darkHours: null,
+    batteryEstimateHours: null,
     weekLightHours: d.light.days * d.light.hours,
     longestDarkHours: longestDark(d),
     generationWeekJ: null,
@@ -304,6 +306,14 @@ export function calculate(input: Design): Result {
     };
   }
   const run = simulate(d.horizonDays * 24, hasPV, true);
+  // The finite trace window must not hide a useful nominal-capacity estimate.
+  // This is kept separate from the first outage actually observed in that window.
+  if (d.mode === "battery" && !cap) {
+    const draw = demand(vUpper) + ((d.storage.leakUa ?? 0) * np * vUpper) / 1e6;
+    if (draw > 0)
+      out.batteryEstimateHours =
+        (maximum * d.storage.initialPercent) / 100 / draw / 3600;
+  }
   out.runtimeHours = run.first;
   if (hasStorage)
     out.darkHours = simulate(d.horizonDays * 24, false, false).first;

@@ -1129,6 +1129,17 @@ function App() {
                     )}
                   </small>
                 </div>
+                {result?.batteryEstimateHours != null && (
+                  <div className="mini-result">
+                    <span>
+                      {bi("标称容量估算续航", "Nominal-capacity estimate")}
+                    </span>
+                    <strong>
+                      {fmt(result.batteryEstimateHours / 24, 1)}{" "}
+                      <small>d</small>
+                    </strong>
+                  </div>
+                )}
                 <div className="metrics">
                   <div>
                     {tr("dark")}
@@ -1334,6 +1345,17 @@ function App() {
                         </strong>
                       </div>
                       <dl>
+                        {r?.batteryEstimateHours != null && (
+                          <>
+                            <dt>
+                              {bi(
+                                "标称容量估算续航",
+                                "Nominal-capacity estimate",
+                              )}
+                            </dt>
+                            <dd>{fmt(r.batteryEstimateHours / 24, 1)} d</dd>
+                          </>
+                        )}
                         <dt>{tr("average")}</dt>
                         <dd>{fmt(r?.averageUa ?? 0)} µA</dd>
                         <dt>{tr("area")}</dt>
@@ -2119,6 +2141,12 @@ function App() {
             {fmt(result?.averageUa ?? 0)} µA
           </p>
           {flow}
+          {result?.batteryEstimateHours != null && (
+            <p>
+              {bi("标称容量估算续航", "Nominal-capacity estimate")}:{" "}
+              {fmt(result.batteryEstimateHours / 24, 1)} d
+            </p>
+          )}
           <h2>{tr("device")}</h2>
           <table>
             <thead>
