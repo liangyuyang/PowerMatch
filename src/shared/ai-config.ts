@@ -66,7 +66,13 @@ export function validBaseURL(provider: Provider, base: string) {
         url.hostname === "generativelanguage.googleapis.com" &&
         ["/v1beta", "/v1beta/openai"].includes(path),
       minimax: url.hostname === "api.minimaxi.com" && path === "/v1",
-      mimo: url.hostname === "api.xiaomimimo.com" && path === "/v1",
+      mimo:
+        [
+          "api.xiaomimimo.com",
+          "token-plan-cn.xiaomimimo.com",
+          "token-plan-sgp.xiaomimimo.com",
+          "token-plan-ams.xiaomimimo.com",
+        ].includes(url.hostname) && path === "/v1",
       grok: url.hostname === "api.x.ai" && path === "/v1",
       qwen:
         ([

@@ -102,6 +102,20 @@ export async function providerCall(
   key: string,
   messages: { role: string; content: string }[],
 ) {
+  if (
+    config.provider === "mimo" &&
+    key.startsWith("tp-") &&
+    config.baseUrl === "https://api.xiaomimimo.com/v1"
+  ) {
+    throw new AIRequestError({
+      code: "provider-plan-endpoint-mismatch",
+      stage: "config",
+      message:
+        "此密钥是 MiMo Token Plan 凭据，但当前 Base URL 是按量 API 入口。",
+      suggestion:
+        "请使用 MiMo 控制台提供的配套 Base URL；中国 Token Plan 为 https://token-plan-cn.xiaomimimo.com/v1。修改地址后需重新填写并保存此模型的 Key。",
+    });
+  }
   const nativeGemini =
     config.baseUrl === "https://generativelanguage.googleapis.com/v1beta";
   let response: Response;
@@ -118,7 +132,9 @@ export async function providerCall(
         headers: {
           ...(nativeGemini
             ? { "x-goog-api-key": key }
-            : { Authorization: `Bearer ${key}` }),
+            : config.provider === "mimo"
+              ? { "api-key": key }
+              : { Authorization: `Bearer ${key}` }),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(
@@ -148,7 +164,12 @@ export async function providerCall(
             : {
                 model: config.model,
                 messages,
-                max_tokens: 4096,
+                ...(["minimax", "mimo"].includes(config.provider)
+                  ? { max_completion_tokens: 4096 }
+                  : { max_tokens: 4096 }),
+                ...(config.provider === "minimax"
+                  ? { reasoning_split: true }
+                  : {}),
                 ...(["deepseek", "gemini"].includes(config.provider)
                   ? { response_format: { type: "json_object" } }
                   : {}),
@@ -233,7 +254,10 @@ export async function providerCall(
   let parsed: unknown;
   try {
     parsed = JSON.parse(
-      content
+      (config.provider === "minimax"
+        ? content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, "")
+        : content
+      )
         .trim()
         .replace(/^```(?:json)?\s*/, "")
         .replace(/\s*```$/, ""),

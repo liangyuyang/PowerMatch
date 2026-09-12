@@ -69,15 +69,66 @@ describe("read official pricing without guessing", () => {
 });
 describe("actionable provider diagnostics", () => {
   afterEach(() => vi.unstubAllGlobals());
-  it("uses Workers-compatible redirect mode and never forwards a key to redirect destinations", async () => {
+  it("separates MiniMax thinking and refuses to parse arbitrary prose", async () => {
     const f = vi
       .fn()
       .mockResolvedValue(
-        new Response(null, {
-          status: 307,
-          headers: { location: "https://untrusted.example/key-collector" },
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: '<think>private analysis</think>\n{"ok":true}',
+              },
+            },
+          ],
         }),
       );
+    vi.stubGlobal("fetch", f);
+    expect(
+      (
+        await providerCall(
+          {
+            ...config,
+            provider: "minimax",
+            baseUrl: "https://api.minimaxi.com/v1",
+          },
+          "fake",
+          [],
+        )
+      ).parsed,
+    ).toEqual({ ok: true });
+    expect(JSON.parse(f.mock.calls[0][1].body).reasoning_split).toBe(true);
+  });
+  it("detects MiMo plan endpoint mismatch before sending a request and uses native auth header", async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValue(
+        Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }),
+      );
+    vi.stubGlobal("fetch", f);
+    const mimo = {
+      ...config,
+      provider: "mimo" as const,
+      baseUrl: "https://api.xiaomimimo.com/v1",
+    };
+    await expect(providerCall(mimo, "tp-fake", [])).rejects.toThrow(
+      "provider-plan-endpoint-mismatch",
+    );
+    expect(f).not.toHaveBeenCalled();
+    await providerCall(
+      { ...mimo, baseUrl: "https://token-plan-cn.xiaomimimo.com/v1" },
+      "tp-fake",
+      [],
+    );
+    expect(f.mock.calls[0][1].headers["api-key"]).toBe("tp-fake");
+  });
+  it("uses Workers-compatible redirect mode and never forwards a key to redirect destinations", async () => {
+    const f = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://untrusted.example/key-collector" },
+      }),
+    );
     vi.stubGlobal("fetch", f);
     await expect(providerCall(config, "private-key", [])).rejects.toThrow(
       "provider-redirect-rejected",

@@ -71,3 +71,8 @@ Checks: 33 unit tests, 48 local API assertions, 33 settings checks, Edge desktop
 
 
 Root cause confirmed by user-triggered production diagnostics (DeepSeek/Grok/MiMo): Cloudflare Workers rejects RequestInit.redirect="error" before sending the provider request. Changed the common adapter to redirect="manual" and explicitly reject every 3xx without forwarding credentials. Pricing already used manual with allowlisted redirect validation. Added a regression test for Workers-compatible mode and no redirect follow. 34 unit tests and build passed. Existing keys do not need replacement for this shared error. Real post-fix health verification remains pending release/recheck.
+
+
+Post-redirect-fix production health: DeepSeek, Grok and Qwen passed user-triggered real health checks. MiMo returned HTTP 401; MiniMax returned HTTP 200 but structured JSON parsing failed. Added MiniMax reasoning_split (with bounded leading think-block normalization), native MiMo api-key header/max_completion_tokens, and explicit Token Plan credential/endpoint mismatch feedback before a request. Official MiMo Token Plan regional endpoints are allowed but never automatically substituted; changing endpoint still requires explicit Key re-entry. No existing model/Key was changed automatically. 36 unit tests pass.
+
+Official references checked: https://platform.minimax.cn/docs/api-reference/text-chat-openai ; https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/quick-access ; https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call . MiniMax and MiMo latest real health checks still require user-triggered verification after this adapter update.
