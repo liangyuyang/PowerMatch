@@ -1,8 +1,8 @@
 # PowerMatch 系统与 UI 设计草案
 
-日期：2026-09-12（北京时间）  
-状态：讨论稿；用户要求本轮不编程、不部署。所有实现选型、默认型号和新增建议仍待讨论，不视为已批准实现。  
-目标仓库：https://github.com/liangyuyang/PowerMatch （已通过 GitHub API 核实 PUBLIC，当前 main 仅有 README.md）  
+日期：2026-09-12（北京时间）
+状态：讨论稿；用户要求本轮不编程、不部署。所有实现选型、默认型号和新增建议仍待讨论，不视为已批准实现。
+目标仓库：https://github.com/liangyuyang/PowerMatch （已通过 GitHub API 核实 PUBLIC，当前 main 仅有 README.md）
 目标域名：powermatch.zenmeasure.space（计划，尚未创建或部署）
 
 ## 1. 产品目标
