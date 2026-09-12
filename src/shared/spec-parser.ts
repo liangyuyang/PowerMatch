@@ -1,2 +1,34 @@
 // Candidates are deliberately never adopted automatically. Each value retains its source excerpt.
-export function extractCandidates(text:string){const definitions:[string,RegExp][]=[['capacityMah',/\b(\d+(?:\.\d+)?)\s*mAh\b/gi],['farads',/\b(\d+(?:\.\d+)?)\s*F\b/g],['voltage',/\b(\d+(?:\.\d+)?)\s*V\b/g],['iqUa',/(?:quiescent\s+current|静态电流)[^\n]{0,45}?(\d+(?:\.\d+)?)\s*(?:µA|μA|uA)/gi],['leakUa',/(?:leakage\s+current|漏电流)[^\n]{0,45}?(\d+(?:\.\d+)?)\s*(?:µA|μA|uA)/gi]];const candidates:{parameter:string;value:number;excerpt:string}[]=[];for(const [parameter,regex] of definitions){for(const match of text.matchAll(regex)){if(candidates.length>=80)break;candidates.push({parameter,value:Number(match[1]),excerpt:text.slice(Math.max(0,match.index!-70),match.index!+match[0].length+70).replace(/\s+/g,' ')});}}return candidates;}
+export function extractCandidates(text: string) {
+  const definitions: [string, RegExp][] = [
+    ["capacityMah", /\b(\d+(?:\.\d+)?)\s*mAh\b/gi],
+    ["farads", /\b(\d+(?:\.\d+)?)\s*F\b/g],
+    ["voltage", /\b(\d+(?:\.\d+)?)\s*V\b/g],
+    [
+      "iqUa",
+      /(?:quiescent\s+current|静态电流)[^\n]{0,45}?(\d+(?:\.\d+)?)\s*(?:µA|μA|uA)/gi,
+    ],
+    [
+      "leakUa",
+      /(?:leakage\s+current|漏电流)[^\n]{0,45}?(\d+(?:\.\d+)?)\s*(?:µA|μA|uA)/gi,
+    ],
+  ];
+  const candidates: { parameter: string; value: number; excerpt: string }[] =
+    [];
+  for (const [parameter, regex] of definitions) {
+    for (const match of text.matchAll(regex)) {
+      if (candidates.length >= 80) break;
+      candidates.push({
+        parameter,
+        value: Number(match[1]),
+        excerpt: text
+          .slice(
+            Math.max(0, match.index! - 70),
+            match.index! + match[0].length + 70,
+          )
+          .replace(/\s+/g, " "),
+      });
+    }
+  }
+  return candidates;
+}

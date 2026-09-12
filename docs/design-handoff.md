@@ -1,3 +1,5 @@
+> Historical design-stage handoff. Programming was subsequently authorized. Current implementation and release status: [../HANDOFF.md](../HANDOFF.md).
+
 # PowerMatch 设计交接
 
 更新时间：2026-09-12（北京时间）。实际设备：Home PC / HomePC。

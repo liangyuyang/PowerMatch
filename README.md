@@ -28,7 +28,7 @@ Email sender is `PowerMatch <support@zenmeasure.com>`. Set the dedicated Worker 
 - LIC defaults to a generic 1 F template, not an invented manufacturer part. Missing parameters remain explicit. Imported text-PDF values are candidates requiring human review.
 - Seven-language primary labels and navigation are available with browser/manual preference. Detailed explanations currently use Chinese/English fallback; full technical localization remains open.
 - Branded report uses browser **Print / Save as PDF**. Energy path is a block diagram. Pin-level schematics/KiCad export, scanned-spec OCR, persistent comparison collections, detailed display waveforms, temperature/discharge curves and adaptive BLE policies remain planned.
-- Mail retry/opt-out controls, a fully reviewed component/image library and authenticated production acceptance remain open. See [HANDOFF.md](HANDOFF.md) for current delivery evidence.
+- Admin mail retry is implemented; opt-out controls and a fully reviewed component/image library remain open. Production Magic Link sign-in and Admin entry were confirmed by the user on 2026-09-12; other authenticated flows remain to be accepted. See [HANDOFF.md](HANDOFF.md) for current delivery evidence.
 
 Original brand/product assets and brochures were supplied by ZenMeasure. Third-party datasheets are source links; code publication does not grant redistribution rights to those documents or trademarks.
 
@@ -54,3 +54,5 @@ Suitable for IoT product development, indoor energy harvesting design, and low-p
 3) 电池适配分析：支持不同类型电池（锂电、薄膜电池等）的容量、充放电特性与设备用电需求的匹配评估——光伏只是设备电池的一种能量来源，本工具同时覆盖"电池 ↔ 设备"的供需关系。
 4) 供需平衡判断：综合光能发电、电池储能与设备耗电，给出"够不够用"的结论与优化建议。
 适合 IoT 产品开发、室内能量采集方案设计、低功耗设备选型等场景使用。
+
+Production uses immediate message processing plus admin-triggered retry/expiry cleanup. The account’s free Cron trigger quota was already exhausted; no other project schedules were modified.
