@@ -1,0 +1,17 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE users (id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,display_name TEXT NOT NULL,locale TEXT NOT NULL DEFAULT 'en',active INTEGER NOT NULL DEFAULT 1,posts_count INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires_at INTEGER NOT NULL);
+CREATE TABLE login_tokens (token_hash TEXT PRIMARY KEY,email TEXT NOT NULL,locale TEXT NOT NULL,expires_at INTEGER NOT NULL);
+CREATE TABLE rate_limits (key TEXT PRIMARY KEY,count INTEGER NOT NULL,expires_at INTEGER NOT NULL);
+CREATE TABLE cases (id TEXT PRIMARY KEY,owner_id TEXT REFERENCES users(id),guest_hash TEXT,name TEXT NOT NULL,scope TEXT NOT NULL CHECK(scope IN ('public','company','private')),latest_revision INTEGER NOT NULL DEFAULT 1,official INTEGER NOT NULL DEFAULT 0,deleted INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE revisions (id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES cases(id),number INTEGER NOT NULL,design_json TEXT NOT NULL,engine_version TEXT NOT NULL,parent_revision TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(case_id,number));
+CREATE INDEX cases_scope_updated ON cases(scope,deleted,updated_at);
+CREATE INDEX cases_owner ON cases(owner_id,deleted);
+CREATE TABLE components (id TEXT PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL,manufacturer TEXT NOT NULL,source TEXT NOT NULL DEFAULT '',description TEXT NOT NULL DEFAULT '',parameters_json TEXT NOT NULL,official INTEGER NOT NULL DEFAULT 0,verified INTEGER NOT NULL DEFAULT 0,owner_id TEXT REFERENCES users(id),adopted_spec TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE specs (id TEXT PRIMARY KEY,component_id TEXT NOT NULL REFERENCES components(id),uploader_id TEXT NOT NULL REFERENCES users(id),filename TEXT NOT NULL,mime TEXT NOT NULL,r2_key TEXT NOT NULL,sha256 TEXT NOT NULL,bytes INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'submitted',proposed_json TEXT NOT NULL DEFAULT '{}',review_note TEXT,reviewer_id TEXT REFERENCES users(id),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX specs_component ON specs(component_id,created_at);
+CREATE TABLE posts (id TEXT PRIMARY KEY,target_type TEXT NOT NULL,target_id TEXT NOT NULL,author_id TEXT NOT NULL REFERENCES users(id),body TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX posts_target ON posts(target_type,target_id,deleted,created_at);
+CREATE TABLE messages (id TEXT PRIMARY KEY,sender_id TEXT NOT NULL REFERENCES users(id),recipient_id TEXT NOT NULL REFERENCES users(id),body TEXT NOT NULL,read_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE mail_outbox (id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),recipient TEXT NOT NULL,subject TEXT NOT NULL,html TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,provider_id TEXT,error_code TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE audit (id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,target_id TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);

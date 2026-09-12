@@ -1,0 +1,5 @@
+# Copy to .dev.vars; never commit real secrets.
+ENVIRONMENT=development
+APP_ORIGIN=http://127.0.0.1:5173
+# RESEND_API_KEY=
+# RESEND_FROM=PowerMatch <login@your-verified-domain>

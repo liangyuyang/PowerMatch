@@ -1,0 +1,12 @@
+{
+ "$schema":"node_modules/wrangler/config-schema.json",
+ "name":"powermatch", "main":"worker/index.ts", "compatibility_date":"2026-09-01", "compatibility_flags":["nodejs_compat"],
+ "account_id":"bc2ac4bad6f535fcde57fa10a22f131b",
+ "assets":{"directory":"./dist","binding":"ASSETS","not_found_handling":"single-page-application","run_worker_first":["/api/*"]},
+ "vars":{"APP_ORIGIN":"https://powermatch.zenmeasure.space","ENVIRONMENT":"production","RESEND_FROM":"PowerMatch <support@zenmeasure.com>"},
+ "d1_databases":[{"binding":"DB","database_name":"powermatch-db","database_id":"c616a8ac-15d8-4bfa-ba6d-64e8b6e3e957","migrations_dir":"worker/migrations"}],
+ "r2_buckets":[{"binding":"SPECS","bucket_name":"powermatch-specs"}],
+ "routes":[{"pattern":"powermatch.zenmeasure.space","custom_domain":true}],
+ "triggers":{"crons":["*/10 * * * *"]},
+ "observability":{"enabled":true}
+}

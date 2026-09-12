@@ -1,0 +1,210 @@
+{
+  "checked_at": "2026-09-12",
+  "scope": "Local design research; manufacturer originals are not included in the public repository. Downloaded is not engineering approval.",
+  "downloaded_component_pdfs": 15,
+  "separate_competitor_reference": {
+    "file": "Otii-manual-en.pdf",
+    "pages": 119,
+    "source_landing_page": "https://www.qoitech.com/battery-toolbox/",
+    "status": "downloaded-readable",
+    "sha256": "c5c96265d323a951bd66ef915a1faa04bbc68eda8fa416e5799cbebb3460584c"
+  },
+  "records": [
+    {
+      "file": "CAP-XX-LY13R8-LIC.pdf",
+      "source_url": "https://www.cap-xx.com/wp-content/uploads/2024/02/CAP-XX-LY13R8-LIC-Datasheet-V1_4.pdf",
+      "status": "unavailable",
+      "error": "HTTP Error 404: Page not found: /wp-content/uploads/2024/02/CAP-XX-LY13R8-LIC-Datasheet-V1_4.pdf",
+      "checked_at": "2026-09-12"
+    },
+    {
+      "file": "CAP-XX-GY13R0-EDLC.pdf",
+      "source_url": "https://www.cap-xx.com/wp-content/uploads/2023/06/CAP-XX-GY13R0-Series-Datasheet-V4_1.pdf",
+      "status": "unavailable",
+      "error": "HTTP Error 404: Page not found: /wp-content/uploads/2023/06/CAP-XX-GY13R0-Series-Datasheet-V4_1.pdf",
+      "checked_at": "2026-09-12"
+    },
+    {
+      "file": "TI-TPS7A02.pdf",
+      "source_url": "https://www.ti.com/lit/ds/symlink/tps7a02.pdf",
+      "checked_at": "2026-09-12",
+      "status": "downloaded-readable",
+      "bytes": 3405605,
+      "pages": 48,
+      "sha256": "599d118a05abbc58e72136bc8b7e2a97037173945b97bb600c3e6f686c162c1e",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "GP-primary-catalog.pdf",
+      "source_url": "https://ind.gpbatteries.com/pub/media/wysiwyg/Primary_Batteries/041023_Primary%2BCatalogue_Final.pdf",
+      "checked_at": "2026-09-12",
+      "status": "downloaded-readable",
+      "bytes": 2343226,
+      "pages": 14,
+      "sha256": "843d2afcdb91785f215ec04e7e59729444fd04d407cbe88a1889682ce88146c8",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Panasonic-CR2450.pdf",
+      "source_url": "https://energy.panasonic.com/dam/master/pdf/en/datasheet/lithium/CR2450_Datasheet_EN.pdf",
+      "checked_at": "2026-09-12",
+      "status": "downloaded-readable",
+      "bytes": 536053,
+      "pages": 1,
+      "sha256": "c857af506e04b92a23a3e7db7dd5400f7b0c0f6ddf99451837ed008d4aa06641",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Panasonic-battery-catalog.pdf",
+      "source_url": "https://energy.panasonic.com/dam/master/pdf/en/catalog/Catalog_EN.pdf",
+      "checked_at": "2026-09-12",
+      "status": "downloaded-readable",
+      "bytes": 20901352,
+      "pages": 31,
+      "sha256": "1116ab784e75941e77b48b637e7184af558b355a8542048a8d68664d7a642fa7",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Energizer-E91-AA.pdf",
+      "source_url": "https://data.energizer.com/pdfs/e91.pdf",
+      "checked_at": "2026-09-12",
+      "status": "downloaded-readable",
+      "bytes": 176109,
+      "pages": 1,
+      "sha256": "22a204e47c54a8b4c4c5b1e9b34be83486ce4b53f73e9c9453ee425cbffc6c8a",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Energizer-E92-AAA.pdf",
+      "source_url": "https://data.energizer.com/pdfs/e92.pdf",
+      "checked_at": "2026-09-12",
+      "status": "downloaded-readable",
+      "bytes": 47026,
+      "pages": 1,
+      "sha256": "237b07107f05de3955a5fbb5fb350c1ed3d8bb4246e0cda293e9adec654d4183",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Epishine-LEH3.pdf",
+      "source_url": "https://kb.epishine.com/wp-content/uploads/2021/08/LEH3-Data-Sheet.pdf",
+      "status": "unavailable",
+      "error": "HTTP Error 403: Forbidden",
+      "checked_at": "2026-09-12"
+    },
+    {
+      "file": "CAP-XX-LY13R8-LIC-v1.7.pdf",
+      "source_url": "https://cap-xx-assets.s3.eu-west-2.amazonaws.com/CAP_XX_LY_13_R8_LIC_Datasheet_V1_7_b24dfbf553.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 944971,
+      "pages": 11,
+      "sha256": "53472bf47075e15814e83a1904df253f5e4b6ee22dfd2977c92113740da7050c",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "CAP-XX-GY-EDLC-v4.5.pdf",
+      "source_url": "https://cap-xx-assets.s3.eu-west-2.amazonaws.com/CAP_XX_GY_series_Datasheet_V4_5_776c24ea2c.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 931869,
+      "pages": 15,
+      "sha256": "7f36f07b48768d5ba98e09a068d79ac5e370148ce3e98b963a1afe565fd7593b",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Murata-CR2032.pdf",
+      "source_url": "https://www.murata.com/-/media/webrenewal/products/batteries/micro/cr/standard/ds-cr2032-003-je_202307.ashx?cvid=20231214062707000000&la=en-us",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 519061,
+      "pages": 4,
+      "sha256": "d3384e38882baf097addfb828ba560432aa0cbf7273e03a9c205afcc4c7e950c",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Saule-perovskite-catalog.pdf",
+      "source_url": "https://sauletech.com/wp-content/uploads/2025/01/Product-Catalog-Saule.pdf",
+      "status": "unavailable",
+      "error": "HTTP Error 404: Not Found",
+      "checked_at": "2026-09-12"
+    },
+    {
+      "file": "Maxell-SR-LR-catalog.pdf",
+      "source_url": "https://biz.maxell.com/en/primary_batteries/SRLR_22e.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 883266,
+      "pages": 3,
+      "sha256": "4ba377a2b9f0968d42707884e4e9eade8f5cf2a89da58178a21b5f7f90c8fb0d",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Energizer-A76-LR44.pdf",
+      "source_url": "https://data.energizer.com/pdfs/a76.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 54563,
+      "pages": 1,
+      "sha256": "8645497829897c1a94e1882bf3badae6fe20aa24e8b462956c2e190bddc0d13e",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "e-peas-AEM10941.pdf",
+      "source_url": "https://e-peas.com/documents/AEM10941/DS-AEM10941.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 3280618,
+      "pages": 52,
+      "sha256": "4a2f76474c84fa3b10c1d863d62f1c0e241484b9cd32c4ab815f23883816bd96",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "TI-BQ25570.pdf",
+      "source_url": "https://www.ti.com/lit/ds/symlink/bq25570.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 2040178,
+      "pages": 46,
+      "sha256": "3caec3945eab27823d07532c39a862bb8f90927019dd8c3811836bedad6b33b7",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "Panasonic-CR2032.pdf",
+      "source_url": "https://energy.panasonic.com/dam/master/pdf/en/datasheet/lithium/CR2032_Datasheet_EN.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 517967,
+      "pages": 1,
+      "sha256": "1b966b66bf8aef2eab5511170995e6e8c3e886f9d0c0937c396495c46e116129",
+      "engineering_review": "not-complete"
+    },
+    {
+      "file": "PowerFilm-indoor-light-series.pdf",
+      "source_url": "https://www.powerfilmsolar.com/hubfs/documents/spec%20sheets/electronic%20component%20solar%20panels/electronic%20component%20solar%20panels%20spec%20sheet_indoor%20light%20series.pdf",
+      "status": "downloaded-readable",
+      "checked_at": "2026-09-12",
+      "bytes": 1010965,
+      "pages": 3,
+      "sha256": "6b06fc08600d06b8d20d7e0da0da3e27d89b5f19eeff5f7ede13dbe246e8ec23",
+      "engineering_review": "not-complete"
+    },
+    {
+      "component": "MKS3061",
+      "source_url": "https://www.makesensic.com/productinfo/3640381.html?templateId=1879235",
+      "status": "catalog-confirmed-spec-pending",
+      "checked_at": "2026-09-12"
+    },
+    {
+      "component": "MKS3062",
+      "source_url": "https://www.makesensic.com/productinfo/3668127.html?templateId=1879235",
+      "status": "catalog-confirmed-spec-pending",
+      "checked_at": "2026-09-12"
+    },
+    {
+      "component": "MKS3162",
+      "source_url": "https://www.makesensic.com/productinfo/119548.html?templateId=1879235",
+      "status": "catalog-confirmed-spec-pending",
+      "checked_at": "2026-09-12"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE posts ADD COLUMN scope TEXT NOT NULL DEFAULT 'public';

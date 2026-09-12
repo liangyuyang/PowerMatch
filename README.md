@@ -1,4 +1,38 @@
-# PowerMatch
+# PowerMatch · ZenMeasure
+
+## Implementation status · 0.1.0
+
+React/TypeScript frontend + Cloudflare Worker, D1 and R2. Resend is the selected transactional email provider. The initial implementation includes a workbench, side-by-side comparison, conditional runtime model, source-linked component catalog, public Tiny example, scoped case revisions, Magic Link endpoints, spec review, discussion and admin screens.
+
+```sh
+npm ci
+npm run context:check
+npm run db:local
+node scripts/seed.mjs
+npx wrangler d1 execute powermatch-db --local --file=tmp/seed.sql
+# Copy .dev.vars.example to .dev.vars. Run in separate terminals:
+npm run dev:api
+npm run dev
+```
+
+Frontend: http://127.0.0.1:5173. API: port 8787. Run `npm test`, `npm run build`, then `node scripts/test-api.mjs` with the local Worker running. Integration tests create synthetic identities only in local D1 and send no email.
+
+Canonical production targets are in `project-context.json`. Guard, test, commit and push before `npm run deploy`. Apply remote D1 migrations explicitly; seed uses INSERT OR IGNORE. Never copy another application's credentials.
+
+Email sender is `PowerMatch <support@zenmeasure.com>`. Set the dedicated Worker secret `RESEND_API_KEY` using Cloudflare or `wrangler secret put RESEND_API_KEY`; never place it in frontend variables, Git or chat. Without this secret, login is disabled and `/api/health` reports `emailConfigured: false`. Provider acceptance and real inbox delivery remain separate checks.
+
+### Model boundaries and remaining work
+
+- Tiny's timing model is **13.2353 µA**. The team's “11+ µA” observation remains separate. MHO-C404's brochure does not provide a load profile.
+- Batteries currently use a nominal-voltage/capacity model; PV uses user-provided reference density and approximate lux/angle scaling. Capacitors use 60-second energy integration with a separate peak check. Results are conditional; an unexhausted simulation reports a lower bound, not infinite life.
+- LIC defaults to a generic 1 F template, not an invented manufacturer part. Missing parameters remain explicit. Imported text-PDF values are candidates requiring human review.
+- Seven-language primary labels and navigation are available with browser/manual preference. Detailed explanations currently use Chinese/English fallback; full technical localization remains open.
+- Branded report uses browser **Print / Save as PDF**. Energy path is a block diagram. Pin-level schematics/KiCad export, scanned-spec OCR, persistent comparison collections, detailed display waveforms, temperature/discharge curves and adaptive BLE policies remain planned.
+- Mail retry/opt-out controls, a fully reviewed component/image library and authenticated production acceptance remain open. See [HANDOFF.md](HANDOFF.md) for current delivery evidence.
+
+Original brand/product assets and brochures were supplied by ZenMeasure. Third-party datasheets are source links; code publication does not grant redistribution rights to those documents or trademarks.
+
+## Product intent
 A calculator for matching indoor solar panel area with device energy consumption. Supports solar, battery, and other power sources to assess if your energy supply can sustain your devices.
 
 This tool answers one question: Can your energy supply sustain your devices?
