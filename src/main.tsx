@@ -566,7 +566,7 @@ function App() {
         <a href="/" className="brand">
           <img src="/assets/zenmeasure-blue.png" alt="ZenMeasure" />
           <span>
-            PowerMatch<small>ENERGY DESIGN STUDIO</small>
+            PowerMatch<small>ENERGY DESIGN STUDIO <span className="app-version" title={`Git ${__APP_REVISION__}`}>{__APP_VERSION__}</span></small>
           </span>
         </a>
         <nav>
