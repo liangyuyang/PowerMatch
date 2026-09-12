@@ -54,3 +54,11 @@ AI application commit 3e7f41c was pushed to origin/main and deployed. Worker ver
 ## Cross-device handoff
 
 This page is copied to the Obsidian PowerMatch project page. The Obsidian main checkout contains unrelated changes and diverged history, so only this handoff is synchronized using an isolated origin/main worktree. No unrelated files, commits or Z0 rules are changed. No new cross-project permanent rule was introduced in this task.
+
+## DIG-style AI settings release — 2026-09-12, Home PC / HOMEPC
+
+Replaced the old model editor with DIG-style AI 模型设置与计费, excluding ASR. Read-only reference: D:/Data/GitHub/Codex/dig/src/components/ModelSettingsPanel.tsx and App.css. Includes default/status overview, today/week/90-day full usage aggregates, model cost bars, CSV, per-model API/Key/pricing/health fields, atomic batch save, and PowerMatch AI/mail diagnostics. Existing shared keys remain supported; per-model encrypted keys bind to provider and endpoint. No DIG credentials/configuration were copied or changed.
+
+Verification before release: context guard, build, 28 unit tests, 48 existing local API assertions, 33 new local API checks, existing assistant browser checks and new expanded desktop/mobile admin checks passed. Drafts survive stats refresh, navigation and reload cancellation. No live provider call was made. Production preflight: 0 models, 1 provider key, 0 invocations; preserve the key and encryption master. Migration 0005 adds billing/settings and model-key tables without deleting legacy data.
+
+Deployment checkpoint will be recorded below after Git push and production release. Main frontend bundle is about 817 KB / 244 KB gzip; splitting remains open. New detailed admin is Chinese as requested; broader localization backlog remains. Next: Patrick adds model rows, checks actual account connectivity and selects default; then verify a real AI design conversation.

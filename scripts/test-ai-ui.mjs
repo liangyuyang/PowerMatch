@@ -39,7 +39,7 @@ await page.locator(".component-node").first().click();
 assert.equal(await page.getByLabel("搜索元器件").inputValue(), "OPV");
 await page.getByRole("button", { name: "Close", exact: true }).click();
 await page.getByRole("button", { name: /管理后台|Admin/ }).click();
-await page.getByRole("heading", { name: "AI 模型与调用" }).waitFor();
+await page.getByRole("heading", { name: "AI 模型设置与计费" }).waitFor();
 await page.screenshot({ path: "tmp/ai-admin-desktop.png", fullPage: true });
 await page.setViewportSize({ width: 390, height: 844 });
 assert.ok(

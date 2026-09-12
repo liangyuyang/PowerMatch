@@ -9,12 +9,16 @@ for (const path of [
   "/api/cases?scope=public",
   "/api/components",
   "/api/admin",
+  "/api/ai/models",
+  "/api/admin/ai",
+  "/api/admin/ai/usage",
+  "/api/admin/ai/diagnostics",
   "/assets/zenmeasure-blue.png",
   "/assets/MOT-U125-body-white.png",
   "/assets/MHO-C404-body-white.png",
 ]) {
   const r = await fetch(origin + path);
-  assert.equal(r.status, path === "/api/admin" ? 403 : 200, path);
+  assert.equal(r.status, path.startsWith("/api/admin") ? 403 : 200, path);
   const entry = { path, status: r.status };
   if (path === "/api/health") {
     const x = await r.json();

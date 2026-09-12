@@ -1633,8 +1633,11 @@ function App() {
             ))}
           </div>
         )}
-        {page === "admin" && viewer?.admin && admin && (
-          <div className="admin-grid">
+        {viewer?.admin && admin && (
+          <div
+            className="admin-grid"
+            style={page === "admin" ? undefined : { display: "none" }}
+          >
             <AIAdmin locale={locale} />
             <section className="panel">
               <h2>{bi("用户与访问权限", "Users & access")}</h2>

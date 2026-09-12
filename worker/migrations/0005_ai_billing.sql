@@ -1,0 +1,11 @@
+CREATE TABLE ai_settings (id INTEGER PRIMARY KEY CHECK(id=1), settings_json TEXT NOT NULL CHECK(json_valid(settings_json)), revision INTEGER NOT NULL DEFAULT 0);
+INSERT INTO ai_settings(id,settings_json) VALUES(1,'{"usdToCny":null}');
+CREATE TABLE ai_model_secrets (model_id TEXT PRIMARY KEY REFERENCES ai_models(id),target TEXT NOT NULL,iv TEXT NOT NULL,ciphertext TEXT NOT NULL,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+ALTER TABLE ai_models ADD COLUMN latency_ms INTEGER;
+ALTER TABLE ai_invocations ADD COLUMN cost_cny REAL;
+ALTER TABLE ai_invocations ADD COLUMN price_snapshot TEXT;
+UPDATE ai_invocations SET cost_cny=estimated_cost WHERE currency='CNY' AND estimated_cost IS NOT NULL;
+CREATE INDEX ai_usage_time ON ai_invocations(created_at);
+CREATE TRIGGER ai_models_insert_revision AFTER INSERT ON ai_models BEGIN UPDATE ai_settings SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER ai_models_update_revision AFTER UPDATE ON ai_models BEGIN UPDATE ai_settings SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER ai_models_delete_revision AFTER DELETE ON ai_models BEGIN UPDATE ai_settings SET revision=revision+1 WHERE id=1; END;

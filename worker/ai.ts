@@ -15,50 +15,19 @@ import {
 } from "../src/shared/assistant";
 import { calculate } from "../src/shared/engine";
 import { openSecret, sealSecret } from "./ai-secrets";
+import {
+  modelConfigSchema,
+  providerSchema,
+  providers,
+  runtimeIdentity,
+  secretTarget,
+  estimateCost,
+  costCny,
+  type AIConfig,
+} from "../src/shared/ai-config";
+import { registerAIAdmin } from "./ai-admin";
+export { modelConfigSchema, providers } from "../src/shared/ai-config";
 
-export const providers = {
-  deepseek: {
-    endpoint: "https://api.deepseek.com/chat/completions",
-    secret: "POWERMATCH_AI_DEEPSEEK_KEY",
-  },
-  gemini: {
-    endpoint:
-      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    secret: "POWERMATCH_AI_GEMINI_KEY",
-  },
-  minimax: {
-    endpoint: "https://api.minimaxi.com/v1/chat/completions",
-    secret: "POWERMATCH_AI_MINIMAX_KEY",
-  },
-  mimo: {
-    endpoint: "https://api.xiaomimimo.com/v1/chat/completions",
-    secret: "POWERMATCH_AI_MIMO_KEY",
-  },
-  grok: {
-    endpoint: "https://api.x.ai/v1/chat/completions",
-    secret: "POWERMATCH_AI_GROK_KEY",
-  },
-  qwen: {
-    endpoint:
-      "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    secret: "POWERMATCH_AI_QWEN_KEY",
-  },
-} as const;
-export const modelConfigSchema = z
-  .object({
-    provider: z.enum(["deepseek", "gemini", "minimax", "mimo", "grok", "qwen"]),
-    name: z.string().trim().min(1).max(80),
-    model: z
-      .string()
-      .trim()
-      .min(1)
-      .max(120)
-      .regex(/^[\w.\-:/]+$/),
-    inputPrice: z.number().finite().min(0).max(10000).nullable(),
-    outputPrice: z.number().finite().min(0).max(10000).nullable(),
-    currency: z.enum(["CNY", "USD"]),
-  })
-  .strict();
 type Config = z.infer<typeof modelConfigSchema>;
 type Row = {
   id: string;
@@ -68,6 +37,7 @@ type Row = {
   health: string;
   checked_at: string | null;
   revision: number;
+  latency_ms?: number | null;
 };
 type App = Hono<{
   Bindings: Env;
@@ -79,7 +49,27 @@ const err = (error: string, status = 400) =>
     headers: { "Content-Type": "application/json" },
   });
 const configOf = (r: Row) => modelConfigSchema.parse(JSON.parse(r.config_json));
-async function keyFor(env: Env, config: Config) {
+async function keyFor(env: Env, config: Config, modelId?: string) {
+  if (modelId) {
+    const specific = await env.DB.prepare(
+      "SELECT target,iv,ciphertext FROM ai_model_secrets WHERE model_id=?",
+    )
+      .bind(modelId)
+      .first<{ target: string; iv: string; ciphertext: string }>();
+    if (specific) {
+      if (
+        specific.target !== secretTarget(config) ||
+        !env.POWERMATCH_AI_ENCRYPTION_KEY
+      )
+        return undefined;
+      return openSecret(
+        env.POWERMATCH_AI_ENCRYPTION_KEY,
+        specific,
+        `model:${modelId}|${specific.target}`,
+      );
+    }
+  }
+  if (config.baseUrl !== providers[config.provider].baseUrl) return undefined;
   const stored = await env.DB.prepare(
     "SELECT iv,ciphertext FROM ai_secrets WHERE provider=?",
   )
@@ -93,7 +83,8 @@ async function keyFor(env: Env, config: Config) {
       config.provider,
     );
   }
-  const value = env[providers[config.provider].secret];
+  const secretName = providers[config.provider].secret;
+  const value = secretName ? env[secretName] : undefined;
   return typeof value === "string" ? value : await value?.get();
 }
 export async function providerCall(
@@ -101,31 +92,71 @@ export async function providerCall(
   key: string,
   messages: { role: string; content: string }[],
 ) {
-  const response = await fetch(providers[config.provider].endpoint, {
-    method: "POST",
-    redirect: "error",
-    signal: AbortSignal.timeout(55000),
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
+  const nativeGemini =
+    config.baseUrl === "https://generativelanguage.googleapis.com/v1beta";
+  const response = await fetch(
+    nativeGemini
+      ? `${config.baseUrl}/models/${encodeURIComponent(config.model)}:generateContent`
+      : `${config.baseUrl}/chat/completions`,
+    {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(55000),
+      headers: {
+        ...(nativeGemini
+          ? { "x-goog-api-key": key }
+          : { Authorization: `Bearer ${key}` }),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(
+        nativeGemini
+          ? {
+              systemInstruction: {
+                parts: [
+                  {
+                    text: messages
+                      .filter((m) => m.role === "system")
+                      .map((m) => m.content)
+                      .join("\n"),
+                  },
+                ],
+              },
+              contents: messages
+                .filter((m) => m.role !== "system")
+                .map((m) => ({
+                  role: m.role === "assistant" ? "model" : "user",
+                  parts: [{ text: m.content }],
+                })),
+              generationConfig: {
+                maxOutputTokens: 4096,
+                responseMimeType: "application/json",
+              },
+            }
+          : {
+              model: config.model,
+              messages,
+              max_tokens: 4096,
+              ...(["deepseek", "gemini"].includes(config.provider)
+                ? { response_format: { type: "json_object" } }
+                : {}),
+            },
+      ),
     },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      max_tokens: 4096,
-      ...(["deepseek", "gemini"].includes(config.provider)
-        ? { response_format: { type: "json_object" } }
-        : {}),
-    }),
-  });
+  );
   if (!response.ok) throw new Error(`provider-http-${response.status}`);
   const data: any = await response.json();
   if (data.base_resp?.status_code) throw new Error("provider-rejected");
-  const content = data.choices?.[0]?.message?.content;
+  const content = nativeGemini
+    ? data.candidates?.[0]?.content?.parts
+        ?.filter((p: any) => !p.thought)
+        .map((p: any) => p.text ?? "")
+        .join("")
+    : data.choices?.[0]?.message?.content;
   if (
     typeof content !== "string" ||
     content.length > 30000 ||
-    data.choices?.[0]?.finish_reason === "length"
+    data.choices?.[0]?.finish_reason === "length" ||
+    data.candidates?.[0]?.finishReason === "MAX_TOKENS"
   )
     throw new Error("provider-invalid-response");
   let parsed: unknown;
@@ -143,8 +174,18 @@ export async function providerCall(
     typeof x === "number" && Number.isSafeInteger(x) && x >= 0 ? x : null;
   return {
     parsed,
-    input: token(data.usage?.prompt_tokens),
-    output: token(data.usage?.completion_tokens),
+    input: token(
+      nativeGemini
+        ? data.usageMetadata?.promptTokenCount
+        : data.usage?.prompt_tokens,
+    ),
+    output: token(
+      nativeGemini &&
+        typeof data.usageMetadata?.candidatesTokenCount === "number"
+        ? data.usageMetadata.candidatesTokenCount +
+            (data.usageMetadata.thoughtsTokenCount ?? 0)
+        : data.usage?.completion_tokens,
+    ),
   };
 }
 function safeError(e: unknown) {
@@ -174,7 +215,7 @@ async function invoke(
     SELECT ?,?,?,?,?,?,? WHERE
     (SELECT COUNT(*) FROM ai_invocations WHERE created_at >= datetime('now','+8 hours','start of day','-8 hours')) < 500
     AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','+8 hours','start of day','-8 hours')) < ?
-    AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','-1 minute')) < 4 RETURNING id`,
+    AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','-1 minute')) < ? RETURNING id`,
   )
     .bind(
       invocation,
@@ -187,6 +228,7 @@ async function invoke(
       user.id,
       user.employee ? 80 : 10,
       user.id,
+      user.admin && purpose === "health" ? 40 : 4,
     )
     .first();
   if (!reservation) return { error: "ai-rate-limited", status: 429 };
@@ -194,18 +236,32 @@ async function invoke(
     output: number | null = null,
     cost: number | null = null;
   try {
-    const key = await keyFor(env, cfg);
+    const key = await keyFor(env, cfg, row.id);
     if (!key) throw new Error("missing-key");
+    const billing = await env.DB.prepare(
+      "SELECT settings_json FROM ai_settings WHERE id=1",
+    ).first<{ settings_json: string }>();
+    const usdToCny = JSON.parse(billing!.settings_json).usdToCny;
     const response = await providerCall(cfg, key, messages);
     input = response.input;
     output = response.output;
-    if (
-      input !== null &&
-      output !== null &&
-      cfg.inputPrice !== null &&
-      cfg.outputPrice !== null
+    cost = estimateCost(cfg, input, output);
+    await env.DB.prepare(
+      "UPDATE ai_invocations SET cost_cny=?,price_snapshot=? WHERE id=?",
     )
-      cost = (input * cfg.inputPrice + output * cfg.outputPrice) / 1e6;
+      .bind(
+        costCny(cost, cfg.currency, usdToCny),
+        JSON.stringify({
+          inputPrice: cfg.inputPrice,
+          outputPrice: cfg.outputPrice,
+          requestPrice: cfg.requestPrice,
+          billingMode: cfg.billingMode,
+          currency: cfg.currency,
+          usdToCny,
+        }),
+        invocation,
+      )
+      .run();
     const result = consume(response.parsed);
     await env.DB.prepare(
       "UPDATE ai_invocations SET status='ok',input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=? WHERE id=?",
@@ -242,7 +298,7 @@ export function registerAI(app: App) {
     const models = [];
     for (const row of rows.results) {
       const cfg = configOf(row);
-      if (row.health === "ok" && (await keyFor(c.env, cfg)))
+      if (row.health === "ok" && (await keyFor(c.env, cfg, row.id)))
         models.push({
           id: row.id,
           name: cfg.name,
@@ -266,14 +322,38 @@ export function registerAI(app: App) {
         health: r.health,
         checkedAt: r.checked_at,
         revision: r.revision,
-        keyConfigured: !!(await keyFor(c.env, configOf(r))),
+        keyConfigured: !!(await keyFor(c.env, configOf(r), r.id)),
+        latencyMs: r.latency_ms ?? null,
         secretName: providers[configOf(r).provider].secret,
       })),
     );
     const usage = await c.env.DB.prepare(
       "SELECT a.*,u.display_name AS caller FROM ai_invocations a JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 100",
     ).all();
+    const settings = await c.env.DB.prepare(
+      "SELECT revision,settings_json FROM ai_settings WHERE id=1",
+    ).first<{ revision: number; settings_json: string }>();
     return c.json({
+      revision: settings!.revision,
+      billing: JSON.parse(settings!.settings_json),
+      providerKeys: Object.fromEntries(
+        await Promise.all(
+          Object.keys(providers).map(async (provider) => [
+            provider,
+            !!(await keyFor(
+              c.env,
+              modelConfigSchema.parse({
+                provider,
+                name: "key status",
+                model: "status",
+                inputPrice: null,
+                outputPrice: null,
+                currency: "CNY",
+              }),
+            )),
+          ]),
+        ),
+      ),
       models,
       usage: usage.results,
       providers,
@@ -288,7 +368,7 @@ export function registerAI(app: App) {
       return err("key-storage-not-configured", 503);
     const data = z
       .object({
-        provider: modelConfigSchema.shape.provider,
+        provider: providerSchema,
         key: z.string().trim().min(10).max(4096),
       })
       .strict()
@@ -330,12 +410,14 @@ export function registerAI(app: App) {
     if ((old?.revision ?? 0) !== data.revision)
       return err("config-conflict", 409);
     const configJSON = JSON.stringify(data.config),
-      unchanged = old?.config_json === configJSON;
+      unchanged =
+        !!old &&
+        runtimeIdentity(configOf(old)) === runtimeIdentity(data.config);
     if (
       data.enabled &&
       (!unchanged ||
         old?.health !== "ok" ||
-        !(await keyFor(c.env, data.config)))
+        !(await keyFor(c.env, data.config, data.id)))
     )
       return err("health-check-required");
     if (data.isDefault && !data.enabled) return err("default-must-be-enabled");
@@ -377,6 +459,7 @@ export function registerAI(app: App) {
       .bind(c.req.param("id"))
       .first<Row>();
     if (!row) return err("model-not-found", 404);
+    const started = Date.now();
     const reply = await invoke(
       c.env,
       user,
@@ -385,21 +468,17 @@ export function registerAI(app: App) {
       [{ role: "user", content: 'Return JSON only: {"ok":true}' }],
       (x) => z.object({ ok: z.literal(true) }).parse(x),
     );
+    if (reply.status === 429) return err(reply.error!, 429);
     await c.env.DB.prepare(
-      "UPDATE ai_models SET health=?,checked_at=CURRENT_TIMESTAMP,enabled=CASE WHEN ?='ok' THEN enabled ELSE 0 END,is_default=CASE WHEN ?='ok' THEN is_default ELSE 0 END WHERE id=? AND revision=?",
+      "UPDATE ai_models SET health=?,checked_at=CURRENT_TIMESTAMP,latency_ms=? WHERE id=? AND revision=?",
     )
-      .bind(
-        reply.error ?? "ok",
-        reply.error ?? "ok",
-        reply.error ?? "ok",
-        row.id,
-        row.revision,
-      )
+      .bind(reply.error ?? "ok", Date.now() - started, row.id, row.revision)
       .run();
     return reply.error
       ? err(reply.error, reply.status)
       : c.json({ ok: true, usage: reply.usage });
   });
+  registerAIAdmin(app, keyFor);
   app.post("/api/ai/assist", async (c) => {
     const user = c.get("user");
     if (!user) return err("login-required", 401);
