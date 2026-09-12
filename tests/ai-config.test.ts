@@ -107,6 +107,6 @@ describe("native Gemini adapter, mocked transport", () => {
     );
     expect(result).toEqual({ parsed: { ok: true }, input: 10, output: 8 });
     expect(fetcher.mock.calls[0][1].headers["x-goog-api-key"]).toBe("fake-key");
-    expect(fetcher.mock.calls[0][1].redirect).toBe("error");
+    expect(fetcher.mock.calls[0][1].redirect).toBe("manual");
   });
 });

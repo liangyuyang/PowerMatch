@@ -35,14 +35,12 @@ describe("read official pricing without guessing", () => {
     ).toThrow("price-format-unsupported");
   });
   it("rejects private addresses, unexpected provider, and offsite redirects before sending credentials", async () => {
-    const f = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(null, {
-          status: 302,
-          headers: { location: "http://127.0.0.1" },
-        }),
-      );
+    const f = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { location: "http://127.0.0.1" },
+      }),
+    );
     vi.stubGlobal("fetch", f);
     await expect(
       readPrices("deepseek", "test-model", "http://127.0.0.1"),
@@ -71,23 +69,37 @@ describe("read official pricing without guessing", () => {
 });
 describe("actionable provider diagnostics", () => {
   afterEach(() => vi.unstubAllGlobals());
+  it("uses Workers-compatible redirect mode and never forwards a key to redirect destinations", async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(null, {
+          status: 307,
+          headers: { location: "https://untrusted.example/key-collector" },
+        }),
+      );
+    vi.stubGlobal("fetch", f);
+    await expect(providerCall(config, "private-key", [])).rejects.toThrow(
+      "provider-redirect-rejected",
+    );
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(f.mock.calls[0][1].redirect).toBe("manual");
+  });
   it("preserves HTTP, vendor code and request ID but redacts the exact credential", async () => {
     const key = "private-test-credential";
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json(
-            {
-              error: {
-                code: "invalid_api_key",
-                message: `Invalid ${key} Bearer ${key}`,
-              },
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code: "invalid_api_key",
+              message: `Invalid ${key} Bearer ${key}`,
             },
-            { status: 401, headers: { "x-request-id": "request-123" } },
-          ),
+          },
+          { status: 401, headers: { "x-request-id": "request-123" } },
         ),
+      ),
     );
     try {
       await providerCall(config, key, []);
@@ -114,13 +126,11 @@ describe("actionable provider diagnostics", () => {
     ).not.toContain("ciphertext secret");
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response("<html>secret content</html>", {
-            headers: { "content-type": "text/html" },
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        new Response("<html>secret content</html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      ),
     );
     try {
       await providerCall(config, "fake", []);

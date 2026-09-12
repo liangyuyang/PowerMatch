@@ -112,7 +112,8 @@ export async function providerCall(
         : `${config.baseUrl}/chat/completions`,
       {
         method: "POST",
-        redirect: "error",
+        // Workers supports only follow/manual. Never forward credentials on a redirect.
+        redirect: "manual",
         signal: AbortSignal.timeout(55000),
         headers: {
           ...(nativeGemini
@@ -157,6 +158,16 @@ export async function providerCall(
     );
   } catch (e) {
     throw new AIRequestError(diagnosticFor(e, "request", key));
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw new AIRequestError({
+      code: "provider-redirect-rejected",
+      stage: "response",
+      httpStatus: response.status,
+      message: "API 返回重定向，已停止请求，未向重定向地址发送密钥。",
+      suggestion:
+        "请核对供应商的最终 API Base URL；不要填写网页地址或中转链接。",
+    });
   }
   let data: any;
   try {
