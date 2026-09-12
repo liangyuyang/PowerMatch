@@ -33,7 +33,7 @@ Initial implementation 0.1.0 is deployed and available for review, not completio
 
 ## Next step
 
-Continue full browser QA and the explicitly listed engineering/product backlog. Do not present planned features as implemented.
+Patrick configures at least one real AI model/key in Admin, runs health check and enables it; then verify a real engineering conversation and applied/compared calculation. Continue PV catalog completeness and remaining engineering/product backlog. Do not present planned features as implemented.
 
 ## AI assistant release — 2026-09-12, Home PC
 
@@ -41,15 +41,15 @@ User authorized implementation and requested DeepSeek, Gemini, MiniMax, MiMo, Gr
 
 Checks: 24 unit tests; 48 local API assertions; desktop/mobile browser interaction tests (close/Escape/backdrop/focus/draft, component chooser, admin layout, mock suggestion apply/undo/compare). No live AI credentials have been provided yet; provider health and real engineering conversation acceptance remain pending. No other app's keys were accessed/copied. Detailed setup, boundaries and official adapter sources: docs/ai-assistant.md.
 
-The AI code is ready for push/deployment in this checkpoint. Deployment result and exact revision will be recorded after production checks. Existing PV catalog gaps remain; this change does not claim complete automatic PV sizing, datasheet browsing/OCR or pin-level schematics. Current UI technical details use Chinese/English fallback. Conversation is in-memory and proposals require explicit Apply/Copy; editing measured load via AI and automatic inference of every manual lock remain follow-up work.
+AI application commit 3e7f41c was pushed to origin/main and deployed. Worker version 0b874b94-1e83-44ea-ae2e-a26e3291486c. Migration 0004 applied; encryption wrapping secret configured and RESEND_API_KEY preserved. Independent production counts: 1 active case, 35 components, 0 AI models and 0 provider keys. Existing PV catalog gaps remain; this change does not claim complete automatic PV sizing, datasheet browsing/OCR or pin-level schematics. Current UI technical details use Chinese/English fallback. Conversation is in-memory and proposals require explicit Apply/Copy; editing measured load via AI and automatic inference of every manual lock remain follow-up work.
 
 ## Verified production checkpoint
 
 - URL: https://powermatch.zenmeasure.space
-- Final successful deployment: 41c5a3e9-aaa4-4f6e-9cb6-2cbcc60b5897 (application code d22d9ed).
+- Final successful deployment: 0b874b94-1e83-44ea-ae2e-a26e3291486c (application code 3e7f41c), verified 2026-09-12 18:55 Beijing.
 - Homepage, health, public cases and component API returned HTTP 200.
 - RESEND_API_KEY secret name confirmed; health reports emailConfigured=true. The user confirmed receiving/using the sign-in link and entering Admin.
-- The browser automation connection is currently unavailable (CDP/fetch timeouts), so responsive/print/joint visual QA remains blocked despite the successful manual login acceptance.
+- New AI/component UI was tested using local headless Edge at desktop/mobile sizes. The original full source-vs-render/print QA remains open. Production /api/ai/models returned 200 with no enabled models; anonymous /api/admin/ai correctly returned 403. No production login tokens or synthetic cases were created for this release.
 
 ## Cross-device handoff
 
