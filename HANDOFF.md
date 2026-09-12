@@ -85,3 +85,5 @@ Latest deployed application: 81876cc (origin/main); Worker 3f41a08d-310c-4736-8f
 Added automatic default fallback: migration 0007 selects the earliest checked enabled healthy model when no default exists, and future first successful checks do the same. Admin can still switch the default. Availability states now use bold high-contrast green/red text.
 
 Added structured plan fee and month/year period. The admin estimates per-call allocation using current billing-cycle calls and elapsed-cycle pace, and explicitly displays observed/projected calls. This is an allocation estimate, not provider per-request billing; no calls or missing USD FX remains pending. Validation: 37 unit tests, 48 local API assertions, production build, and local Edge desktop/mobile checks including plan fields and status typography. Production migration/deployment and smoke checkpoint follow.
+
+Production preflight found the user's existing plan entries were plain notes: MiMo `39元/月` and MiniMax `290元/年`. Migration 0008 strictly backfills only exact numeric `元/月` or `元/年` notes into structured fee/period fields, preserving the original notes. Other free-form text is not guessed or changed.
