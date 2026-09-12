@@ -37,7 +37,7 @@ try {
   await row.locator('label').filter({hasText:'套餐周期'}).locator('select').selectOption("month");
   assert.match(
     await row.getByText(/99 CNY\/月/).innerText(),
-    /产生调用后|推算约/,
+    /预算示例/,
   );
   const available = panel.locator(".ms-state-available").first();
   if (await available.count())

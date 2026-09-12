@@ -138,11 +138,11 @@ export const DEFAULT_DESIGN: Design = {
     planeMeasured: false,
   },
   pv: {
-    componentId: "custom-pv",
-    areaCm2: 12,
+    componentId: "powerfilm-ll200-24-75",
+    areaCm2: 68.62,
     referenceLux: 200,
-    densityUwCm2: null,
-    voltage: null,
+    densityUwCm2: 289 / 68.62,
+    voltage: 1.6,
     utilization: 0.7,
   },
   storage: {
@@ -157,7 +157,7 @@ export const DEFAULT_DESIGN: Design = {
     minVoltage: 2,
     initialPercent: 100,
     leakUa: 0,
-    esr: null,
+    esr: 20,
   },
   regulation: {
     componentId: "tps7a02",
@@ -171,7 +171,7 @@ export const DEFAULT_DESIGN: Design = {
   horizonDays: 30,
   margin: 20,
   notes:
-    "MOT-U125: 11+ µA is an engineering estimate. Timing model: 13.2353 µA. 150 lux is a prior test observation, not a universal threshold. Internal IC and original LR41 ×2 wiring are unconfirmed.",
+    "MOT-U125: 11+ µA is an engineering estimate. Timing model: 13.2353 µA. 150 lux is a prior test observation, not a universal threshold. Internal IC and original LR41 ×2 wiring are unconfirmed. 演算假设 / Simulation assumptions: battery ESR 20 ohm; regulator dropout 0.1 V; conversion/harvest efficiency 80%; non-MPPT utilization 70%. Validate at actual operating conditions. PowerFilm 200 lux power density uses module footprint, not active cell area.",
 };
 export function cloneDesign(d: Design = DEFAULT_DESIGN): Design {
   return structuredClone(d);
@@ -208,31 +208,48 @@ export function changeStorage(
       : kind === "rechargeable"
         ? {
             kind,
-            componentId: "custom-rechargeable",
+            componentId: "assumed-li-ion-40mah",
             series: 1,
             parallel: 1,
-            voltage: null,
-            capacityMah: null,
+            voltage: 3.7,
+            capacityMah: 40,
             farads: null,
-            maxVoltage: null,
-            minVoltage: null,
+            maxVoltage: 4.2,
+            minVoltage: 3,
             initialPercent: 100,
-            leakUa: null,
-            esr: null,
+            leakUa: 1,
+            esr: 1,
           }
         : {
             kind,
-            componentId: `custom-${kind}`,
+            componentId: kind === "lic" ? "assumed-lic-1f" : "capxx-edlc1",
             series: 1,
             parallel: 1,
-            voltage: null,
+            voltage: kind === "lic" ? 3.8 : 2.7,
             capacityMah: null,
             farads: 1,
-            maxVoltage: null,
-            minVoltage: null,
+            maxVoltage: kind === "lic" ? 3.8 : 2.7,
+            minVoltage: kind === "lic" ? 2.5 : 1.6,
             initialPercent: 100,
-            leakUa: null,
-            esr: null,
+            leakUa: kind === "lic" ? 3 : 2,
+            esr: kind === "lic" ? 1 : 0.25,
           };
+  if (next.mode === "hybrid" || kind !== "primary") {
+    next.regulation.charger = kind !== "primary";
+    if (kind !== "primary") {
+      next.regulation = { ...next.regulation, componentId: "assumed-harvester-regulator", iqUa: 0.5, efficiency: 0.8, harvestEfficiency: 0.8, mppt: true, charger: true };
+      next.path = "converter";
+    }
+  }
   return next;
+}
+
+export function changeMode(d: Design, mode: Design["mode"]): Design {
+  const n = cloneDesign(d);
+  n.mode = mode;
+  if (mode === "hybrid") return changeStorage(n, "lic");
+  n.path = "ldo";
+  n.regulation = cloneDesign().regulation;
+  if (mode === "battery") n.storage = cloneDesign().storage;
+  return n;
 }

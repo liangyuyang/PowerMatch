@@ -7,7 +7,6 @@ import {
   secretTarget,
   csvCell,
   beijingTime,
-  planUnitEstimate,
 } from "../src/shared/ai-config";
 import { providerCall } from "../worker/ai";
 const cfg = modelConfigSchema.parse({
@@ -67,14 +66,6 @@ describe("AI billing and destinations", () => {
     expect(costCny(0, "CNY", null)).toBe(0);
   });
   it("estimates plan cost from current billing-cycle usage pace", () => {
-    expect(planUnitEstimate(100, 10, 0.5)).toEqual({
-      projectedCalls: 20,
-      unitCost: 5,
-    });
-    expect(planUnitEstimate(1200, 0, 0.5)).toEqual({
-      projectedCalls: 0,
-      unitCost: null,
-    });
     const plan = modelConfigSchema.parse({
       ...cfg,
       billingMode: "plan",

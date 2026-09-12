@@ -958,14 +958,7 @@ export function AIAdmin({ locale }: { locale: Locale }) {
               <div className="ms-row-foot">
                 <span>
                   {m.billingMode === "plan"
-                    ? (() => {
-                        const estimate = rows.find(
-                          (r) => r.model_id === m.id && r.period === "total",
-                        );
-                        return m.planFee == null
-                          ? "请填写结构化套餐价格，系统才能估算调用摊销成本"
-                          : `${m.planFee} ${m.currency}/${m.planPeriod === "month" ? "月" : "年"}；${estimate?.plan_cost_per_call_cny != null ? `按本账期 ${estimate.plan_cycle_calls} 次调用推算约 ${rmb(estimate.plan_cost_per_call_cny)}/次（预计本账期 ${estimate.plan_projected_calls} 次）` : "产生调用后按本账期实际使用速度估算每次摊销"}`;
-                      })()
+                    ? (m.planFee == null ? "请填写套餐固定费用" : `套餐固定费用：${m.planFee} ${m.currency}/${m.planPeriod === "month" ? "月" : "年"}；月均预算 ${(m.planFee / (m.planPeriod === "year" ? 12 : 1)).toFixed(2)} ${m.currency}。仅作预算示例：假设每月 1,000 次业务调用，分摊约 ${(m.planFee / (m.planPeriod === "year" ? 12 : 1) / 1000).toFixed(4)} ${m.currency}/次。套餐价格不能推导实际单次扣费；具体额度与超额费用以供应商规则为准。`)
                     : `输入 ${m.inputPrice ?? "待确认"} / 输出 ${m.outputPrice ?? "待确认"} ${m.currency}/百万 Token；单请求 ${m.requestPrice ?? "待确认"} ${m.currency}`}
                 </span>
                 {m.health !== "ok" && m.health !== "unchecked" && (

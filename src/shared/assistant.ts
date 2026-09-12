@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   cloneDesign,
+  changeStorage,
   designSchema,
   type Design,
   type Component,
@@ -49,7 +50,7 @@ export const proposalSchema = z
   .strict();
 export type Proposal = z.infer<typeof proposalSchema>;
 
-// Both the UI and AI use this same catalog-to-design mapping. Missing facts stay null.
+// Missing catalog facts remain unchanged in the catalog; the design gets labeled simulation assumptions.
 export function selectComponent(input: Design, c: Component): Design {
   const n = cloneDesign(input),
     p = c.parameters;
@@ -107,6 +108,13 @@ export function selectComponent(input: Design, c: Component): Design {
         num("harvestEfficiency") ?? n.regulation.harvestEfficiency,
     };
   } else throw new Error("component-category-unsupported");
+  const fallback = c.category === "pv" ? cloneDesign().pv : ["ldo","pmic"].includes(c.category) ? {...cloneDesign().regulation, iqUa: c.category === "pmic" ? 0.5 : 0.025} : changeStorage(cloneDesign(),n.storage.kind).storage;
+  const group = c.category === "pv" ? "pv" : ["ldo","pmic"].includes(c.category) ? "regulation" : "storage";
+  const assumed:string[]=[];
+  for(const [key,value] of Object.entries(fallback)) {
+    if ((n[group] as any)[key] === null && value !== null) { (n[group] as any)[key]=value; assumed.push(`${group}.${key}=${value}`); }
+  }
+  if(assumed.length) n.notes = (n.notes + `\n演算假设 / Simulation assumptions for ${c.id} (not manufacturer specs): ${assumed.join(", ")}`).slice(-5000);
   return n;
 }
 

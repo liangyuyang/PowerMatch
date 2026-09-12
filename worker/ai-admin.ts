@@ -6,7 +6,6 @@ import {
   modelConfigSchema,
   runtimeIdentity,
   secretTarget,
-  planUnitEstimate,
   type AIConfig,
 } from "../src/shared/ai-config";
 import { readPrices } from "./ai-pricing";
@@ -238,67 +237,13 @@ export function registerAIAdmin(
     const usdToCny: number | null = JSON.parse(
       settings!.settings_json,
     ).usdToCny;
-    const now = new Date(),
-      beijing = new Date(now.getTime() + 8 * 3600000),
-      year = beijing.getUTCFullYear(),
-      month = beijing.getUTCMonth(),
-      day = beijing.getUTCDate();
-    const monthDays = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(),
-      yearDays = (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / 86400000;
-    const dayFraction =
-      (beijing.getUTCHours() * 3600 +
-        beijing.getUTCMinutes() * 60 +
-        beijing.getUTCSeconds()) /
-      86400;
-    const starts = {
-      month: new Date(Date.UTC(year, month, 1) - 8 * 3600000)
-        .toISOString()
-        .slice(0, 19)
-        .replace("T", " "),
-      year: new Date(Date.UTC(year, 0, 1) - 8 * 3600000)
-        .toISOString()
-        .slice(0, 19)
-        .replace("T", " "),
-    };
-    const elapsed = {
-      month: Math.max((day - 1 + dayFraction) / monthDays, 1 / monthDays),
-      year: Math.max(
-        ((Date.UTC(year, month, day) - Date.UTC(year, 0, 1)) / 86400000 +
-          dayFraction) /
-          yearDays,
-        1 / yearDays,
-      ),
-    };
     const plan = new Map<string, Record<string, unknown>>();
     for (const row of models.results) {
       const cfg = modelConfigSchema.parse(JSON.parse(row.config_json));
-      if (cfg.billingMode !== "plan" || cfg.planFee === null) continue;
-      const count = await c.env.DB.prepare(
-        "SELECT COUNT(*) count FROM ai_invocations WHERE model_id=? AND created_at>=?",
-      )
-        .bind(row.id, starts[cfg.planPeriod])
-        .first<{ count: number }>();
-      const calls = count?.count ?? 0,
-        { projectedCalls: projected, unitCost: unit } = planUnitEstimate(
-          cfg.planFee,
-          calls,
-          elapsed[cfg.planPeriod],
-        );
-      plan.set(row.id, {
-        plan_fee: cfg.planFee,
-        plan_period: cfg.planPeriod,
-        plan_cycle_calls: calls,
-        plan_projected_calls: projected,
-        plan_cost_per_call: unit,
-        plan_cost_per_call_cny:
-          unit === null
-            ? null
-            : cfg.currency === "CNY"
-              ? unit
-              : usdToCny === null
-                ? null
-                : unit * usdToCny,
-      });
+      if (cfg.billingMode !== "plan") continue;
+      plan.set(row.id, {plan_fee: cfg.planFee, plan_period: cfg.planPeriod,
+        plan_cost_per_call: null, plan_cost_per_call_cny: null,
+        plan_estimate_status: "fixed-subscription-no-per-call-rate"});
     }
     return c.json({
       rows: rows.results.map((row: any) => ({

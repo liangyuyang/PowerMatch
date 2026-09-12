@@ -63,7 +63,7 @@ describe("AI design boundary", () => {
       ),
     ).toThrow("locked-parameters");
   });
-  it("clears missing specifications when replacing a part", () => {
+  it("replaces missing specifications with labeled assumptions, not the previous part values", () => {
     const d = cloneDesign();
     d.pv.densityUwCm2 = 30;
     d.pv.voltage = 3;
@@ -71,9 +71,10 @@ describe("AI design boundary", () => {
       d,
       CATALOG.find((x) => x.id === "epishine-leh3")!,
     );
-    expect(next.pv.densityUwCm2).toBeNull();
-    expect(next.pv.voltage).toBeNull();
-    expect(calculate(next).missing).toContain("pv-density");
+    expect(next.pv.densityUwCm2).not.toBe(30);
+    expect(next.pv.voltage).not.toBe(3);
+    expect(next.notes).toContain("Simulation assumptions for epishine-leh3");
+    expect(calculate(next).missing).not.toContain("pv-density");
   });
   it("rejects invalid schedules and dangerous nested fields", () => {
     expect(() =>
@@ -94,8 +95,10 @@ describe("AI design boundary", () => {
     ).toThrow();
   });
   it("does not certify an incompatible primary charging design", () => {
+    const input = cloneDesign();
+    input.regulation.charger = true;
     const x = applyProposal(
-      cloneDesign(),
+      input,
       proposal([{ type: "set", path: "mode", value: "hybrid" }]),
       CATALOG,
       [],

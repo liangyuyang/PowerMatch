@@ -401,6 +401,14 @@ select {
   height: 64px;
   object-fit: contain;
 }
+
+button.ai-launch { color: white; border: 0; font-weight: 750; background: linear-gradient(115deg,#2349ac,#7238ab,#14677c,#2349ac); background-size: 300% 100%; animation: ai-colors 8s ease infinite; }
+button.ai-launch:hover { filter: brightness(1.12); }
+@keyframes ai-colors { 0%,100% {background-position:0% 50%} 50% {background-position:100% 50%} }
+@media (prefers-reduced-motion: reduce) { button.ai-launch {animation:none} }
+.angle-disabled {opacity:.55}
+.angle-disabled select {cursor:not-allowed; background:#e8ebef}
+img[src*="MOT-U125"],img[src*="MHO-C404"] {object-fit:contain; flex-shrink:0; max-width:100%}
 .energy-flow > div > span,
 .component-node > span {
   max-width: 110px;

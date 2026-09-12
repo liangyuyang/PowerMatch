@@ -20,6 +20,12 @@ const part = (
   official: true,
 });
 export const CATALOG: Component[] = [
+  part("powerfilm-ll200-24-75", "LL200-2.4-75 · 非晶硅默认", "pv", "PowerFilm", {chemistry:"a-Si", areaCm2:68.62, referenceLux:200, densityUwCm2:289/68.62, voltage:1.6}, "https://www.powerfilmsolar.com/hubfs/documents/spec%20sheets/electronic%20component%20solar%20panels/electronic%20component%20solar%20panels%20spec%20sheet_indoor%20light%20series.pdf", "200 lux: 289 µW, 1.6 V; 94 × 73 mm. Density uses module footprint. Spectrum/angle scaling and LDO dropout are design assumptions."),
+  part("assumed-opv-leh3", "OPV · LEH3_50x20_6_10 演算模板", "pv", "Epishine / PowerMatch assumptions", {chemistry:"OPV", areaCm2:10, referenceLux:500, densityUwCm2:16.7, voltage:2.5}, "https://kb.epishine.com/wp-content/uploads/2021/08/LEH3-Data-Sheet.pdf", "500 lux warm white LED: 167 µW over 10 cm² module. Working voltage 2.5 V is a simulation assumption, NOT the 3.8 V open-circuit specification.", false),
+  part("assumed-perovskite", "钙钛矿 · 通用演算模板（待实测）", "pv", "PowerMatch assumptions", {chemistry:"Perovskite", areaCm2:20, referenceLux:200, densityUwCm2:5, voltage:2.5}, "", "All electrical values are illustrative assumptions, not Saule specifications or a verified purchasable model.", false),
+  part("assumed-lic-1f", "LIC 1F · 演算模板（待选型）", "lic", "PowerMatch assumptions", {farads:1, voltage:3.8, maxVoltage:3.8, minVoltage:2.5, leakUa:3, esr:1}, "", "1 F requested default. Voltage, leakage and ESR are assumptions requiring actual part validation.", false),
+  part("assumed-li-ion-40mah", "锂电池 40mAh · 演算模板", "rechargeable", "PowerMatch assumptions", {voltage:3.7, capacityMah:40, maxVoltage:4.2, minVoltage:3, leakUa:1, esr:1}, "", "Illustrative rechargeable battery; all values require selected cell validation.", false),
+  part("assumed-harvester-regulator", "采能充电 + 稳压 · 演算模板", "pmic", "PowerMatch assumptions", {iqUa:0.5, efficiency:0.8, harvestEfficiency:0.8, mppt:"Yes", charger:"Yes"}, "", "Functional system template, not a single validated IC. Charger thresholds, cold start, output voltage and external parts require engineering verification.", false),
   part(
     "panasonic-cr2032",
     "CR2032",

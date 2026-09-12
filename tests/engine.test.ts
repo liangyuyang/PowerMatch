@@ -13,8 +13,8 @@ describe("physical model", () => {
     const r = calculate(cloneDesign());
     expect(r.averageUa).toBeCloseTo(13.235294, 5);
     expect(r.loadUw).toBeCloseTo(19.852941, 5);
-    expect(r.status).toBe("incomplete");
-    expect(r.runtimeHours).toBeNull();
+    expect(r.status).not.toBe("incomplete");
+    expect(r.runtimeHours).toBe(10);
   });
   it("models the 62 h weekend darkness and 50 h lit week", () => {
     const d = cloneDesign();

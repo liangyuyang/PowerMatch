@@ -39,6 +39,7 @@ import {
   chooseLocale,
   locales,
   changeStorage,
+  changeMode,
   designSchema,
   type Design,
   type Viewer,
@@ -433,43 +434,13 @@ function App() {
   };
   const useComponent = (c: Component) => {
     const p = c.parameters;
-    setD((old) => {
-      const n = cloneDesign(old);
-      if (c.category === "battery") {
-        n.mode = "battery";
-        n.storage.kind = "primary";
-        n.storage.componentId = c.id;
-        n.storage.voltage = typeof p.voltage === "number" ? p.voltage : null;
-        n.storage.capacityMah =
-          typeof p.capacityMah === "number" ? p.capacityMah : null;
-        n.storage.minVoltage =
-          typeof p.minVoltage === "number" ? p.minVoltage : 1;
-        n.storage.maxVoltage = n.storage.voltage;
-        n.storage.esr = typeof p.esr === "number" ? p.esr : null;
-        n.storage.series = 1;
-        n.storage.parallel = 1;
-      } else if (["lic", "supercapacitor", "supercap"].includes(c.category)) {
-        n.mode = "hybrid";
-        n.storage.kind = c.category === "lic" ? "lic" : "supercap";
-        n.storage.componentId = c.id;
-        n.storage.farads = typeof p.farads === "number" ? p.farads : null;
-        n.storage.minVoltage =
-          typeof p.minVoltage === "number" ? p.minVoltage : null;
-        n.storage.maxVoltage =
-          typeof p.maxVoltage === "number" ? p.maxVoltage : null;
-        n.storage.leakUa = typeof p.leakUa === "number" ? p.leakUa : null;
-        n.storage.esr = typeof p.esr === "number" ? p.esr : null;
-      } else if (c.category === "pv") {
-        n.pv.componentId = c.id;
-        n.pv.densityUwCm2 =
-          typeof p.densityUwCm2 === "number" ? p.densityUwCm2 : null;
-        n.pv.voltage = null;
-        n.mode = "pv";
-      } else if (c.category === "ldo" || c.category === "pmic") {
-        n.regulation.componentId = c.id;
-        n.path = c.category === "ldo" ? "ldo" : "converter";
-        n.regulation.iqUa = typeof p.iqUa === "number" ? p.iqUa : null;
-        n.regulation.mppt = String(p.mppt).toLowerCase() === "yes";
+    setD(old => {
+      const n = selectComponent(old, c);
+      if (c.category === "pv") n.mode = "pv";
+      if (c.category === "battery") {n.mode="battery"; n.regulation.charger=false;}
+      if (["lic","supercap","rechargeable"].includes(c.category)) {
+        const base=changeStorage({...n,mode:"hybrid"},n.storage.kind);
+        return {...base,storage:n.storage};
       }
       return n;
     });
@@ -580,7 +551,7 @@ function App() {
           src={
             d.device === "MHO-C404"
               ? "/assets/MHO-C404-body-white.png"
-              : "/assets/MOT-U125-body-white.png"
+              : "/assets/MOT-U125-body-proportional.png"
           }
           alt={d.device}
         />
@@ -695,7 +666,7 @@ function App() {
           </div>
           {["workbench", "compare"].includes(page) && (
             <div className="toolbar">
-              <button onClick={() => setAiOpen(true)}>
+              <button className="ai-launch" onClick={() => setAiOpen(true)}>
                 <Chats />
                 {bi("AI 设计助手", "AI assistant")}
               </button>
@@ -922,7 +893,7 @@ function App() {
                       <button
                         className={d.mode === v ? "selected" : ""}
                         key={v}
-                        onClick={() => setD({ ...d, mode: v })}
+                        onClick={() => setD(changeMode(d, v))}
                       >
                         {v === "battery" ? <Battery /> : <Sun />}
                         {tr(v)}
@@ -930,6 +901,7 @@ function App() {
                     ))}
                   </div>
                   {flow}
+                  <p className="caption">{bi("已预填完整演算配置，可直接调整。assumed 型号为假设模板；效率、内阻、光谱换算为演算假设，并非厂家保证值。", "Ready-to-calculate defaults. assumed parts, efficiency, resistance and spectrum conversion are simulation assumptions, not manufacturer guarantees.")}</p>
                   <p className="caption">
                     {bi(
                       "能量路径示意 · 元器件图不代表可投产原理图",
@@ -963,7 +935,16 @@ function App() {
                       {field("light", "days", tr("days"))}
                       {field("light", "hours", tr("hours"))}
                       {field("light", "startHour", tr("start"))}
-                      {field("light", "angle", tr("angle"))}
+                      <label className={`field ${d.light.planeMeasured ? "angle-disabled" : ""}`}>
+                        {bi("光线照向板面的角度", "Light direction onto the panel")}
+                        <select aria-label={bi("光线照向板面的角度", "Light direction onto the panel")} disabled={d.light.planeMeasured} value={d.light.angle} onChange={(e) => update("light", "angle", Number(e.target.value))}>
+                          <option value={0}>{bi("最佳角度：垂直入射（正对光源）", "Best: directly facing the light")}</option>
+                          <option value={45}>{bi("比较糟糕：45° 斜射", "Worse: 45° tilt")}</option>
+                          <option value={22.5}>{bi("介于以上两者之间（按 22.5° 估算）", "In between (22.5° estimate)")}</option>
+                          <option value={67.5}>{bi("比 45° 还糟（按 67.5° 估算）", "Worse than 45° (67.5° estimate)")}</option>
+                          {![0,45,22.5,67.5].includes(d.light.angle) && <option value={d.light.angle}>{bi("已有自定义角度", "Existing custom angle")} · {d.light.angle}°</option>}
+                        </select>
+                      </label>
                     </div>
                     <label className="check">
                       <input
@@ -974,10 +955,11 @@ function App() {
                         }
                       />
                       {bi(
-                        "照度已在光伏板平面测量（不重复按角度折减）",
+                        "这个 lux 是照度计贴着光伏板、朝向与板面一致时测得的",
                         "Illuminance measured on the panel plane (no double angle correction)",
                       )}
                     </label>
+                    <p className="caption">{bi(d.light.planeMeasured ? "读数已包含倾斜影响，角度选项已停用，不再重复打折。" : "如果只是估计房间亮度，使用上方角度估算板面收到的光。", d.light.planeMeasured ? "The reading includes tilt. Angle correction is disabled." : "For estimated room brightness, use the angle above to approximate light reaching the panel.")}</p>
                     <div className="week">
                       {["M", "T", "W", "T", "F", "S", "S"].map((v, i) => (
                         <div key={i} className={i < d.light.days ? "lit" : ""}>
@@ -989,6 +971,14 @@ function App() {
                     <h3>
                       {tr("pv")} · {d.pv.componentId}
                     </h3>
+                    <label className="field">{bi("光伏材料 · 自动配置", "PV material · ready preset")}
+                      <select aria-label={bi("光伏材料 · 自动配置", "PV material · ready preset")} value={d.pv.componentId} onChange={(e) => {const c=CATALOG.find(c=>c.id===e.target.value);if(c)setD(selectComponent(d,c));}}>
+                        <option value="powerfilm-ll200-24-75">非晶硅 · PowerFilm LL200-2.4-75</option>
+                        <option value="assumed-opv-leh3">OPV · LEH3 演算模板</option>
+                        <option value="assumed-perovskite">钙钛矿 · 假设模板</option>
+                        {!["powerfilm-ll200-24-75","assumed-opv-leh3","assumed-perovskite"].includes(d.pv.componentId) && <option value={d.pv.componentId}>{d.pv.componentId}</option>}
+                      </select>
+                    </label>
                     <div className="grid2">
                       {field("pv", "areaCm2", tr("area"))}
                       {field("pv", "densityUwCm2", tr("density"), true)}
@@ -1089,7 +1079,7 @@ function App() {
                       ["converter", "DC/DC"],
                       ["direct", bi("直接连接", "Direct connection")],
                     ],
-                    (v) => setD({ ...d, path: v as Design["path"] }),
+                    (v) => setD({ ...d, path: v as Design["path"], regulation: v === "converter" ? {...d.regulation,componentId:"assumed-harvester-regulator",iqUa:0.5,efficiency:0.8,harvestEfficiency:0.8} : v === "ldo" ? {...cloneDesign().regulation,charger:d.mode === "hybrid" && d.storage.kind !== "primary",componentId:d.mode === "hybrid" && d.storage.kind !== "primary" ? "TPS7A02 + assumed charger" : "tps7a02"} : {...d.regulation,componentId:"direct",iqUa:0,mppt:false} }),
                   )}
                   <div className="grid2">
                     {field(
@@ -1198,7 +1188,7 @@ function App() {
                     src={
                       d.device === "MHO-C404"
                         ? "/assets/MHO-C404-body-white.png"
-                        : "/assets/MOT-U125-body-white.png"
+                        : "/assets/MOT-U125-body-proportional.png"
                     }
                     alt={d.device}
                   />
@@ -1365,7 +1355,7 @@ function App() {
                         src={
                           design.device === "MHO-C404"
                             ? "/assets/MHO-C404-body-white.png"
-                            : "/assets/MOT-U125-body-white.png"
+                            : "/assets/MOT-U125-body-proportional.png"
                         }
                         alt={design.device}
                       />
@@ -1813,8 +1803,8 @@ function App() {
               />
               <p>
                 {bi(
-                  "选择型号自动填入库内参数；缺失数据保留待补全，效率等现有假设仍需检查。供电方式保持不变。",
-                  "Selecting a model fills catalog parameters. Missing data stays unknown; retained efficiency assumptions need review. Supply mode is preserved.",
+                  "选择型号自动填参数；缺失项采用演算假设，并写入设计记录（不是厂家规格）。供电方式保持不变。",
+                  "Catalog values fill automatically; missing values use simulation assumptions recorded in design notes, not manufacturer specifications. Supply mode is preserved.",
                 )}
               </p>
               <div className="ai-model-list">

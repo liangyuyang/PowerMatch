@@ -270,10 +270,11 @@ export function AIAssistant({
             )}
           </p>
         )}
-        <details>
+        <details open>
           <summary>
-            {bi("保留这些参数（锁定）", "Keep these parameters (locked)")}
+            {bi("哪些参数不让 AI 改", "Parameters AI must keep")}
           </summary>
+          <p>{bi("勾选后，AI 必须保留这组参数；未勾选的可以提出调整建议。锁定不会阻止你手动修改。", "Checked groups must stay unchanged in AI proposals. You can still edit them manually.")}</p>
           <div className="ai-locks">
             {lockGroups.map((g) => (
               <label key={g}>
