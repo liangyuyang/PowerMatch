@@ -8,6 +8,7 @@ import {
   secretTarget,
   type AIConfig,
 } from "../src/shared/ai-config";
+import { readPrices } from "./ai-pricing";
 import { sealSecret } from "./ai-secrets";
 type App = Hono<{
   Bindings: Env;
@@ -48,6 +49,26 @@ export function registerAIAdmin(
     id?: string,
   ) => Promise<string | undefined>,
 ) {
+  app.post("/api/admin/ai/prices", async (c) => {
+    if (!c.get("user")?.admin) return err("admin-required", 403);
+    const data = z
+      .object({
+        provider: z.string().max(40),
+        model: z.string().max(120),
+        source: z.string().url().max(2000),
+      })
+      .strict()
+      .parse(await c.req.json());
+    try {
+      return c.json(await readPrices(data.provider, data.model, data.source));
+    } catch (e) {
+      const code =
+        e instanceof Error && /^price-[a-z0-9-]+$/.test(e.message)
+          ? e.message
+          : "price-fetch-failed";
+      return err(code, 422);
+    }
+  });
   app.post("/api/admin/ai/settings", async (c) => {
     const user = c.get("user");
     if (!user?.admin) return err("admin-required", 403);
@@ -116,7 +137,7 @@ export function registerAIAdmin(
       statements.push(
         c.env.DB.prepare(
           `INSERT INTO ai_models(id,config_json,enabled,is_default,health,checked_at,revision) VALUES(?,?,?,?,?,?,1)
-    ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json,enabled=excluded.enabled,is_default=excluded.is_default,health=excluded.health,checked_at=excluded.checked_at,latency_ms=CASE WHEN ? THEN latency_ms ELSE NULL END,revision=revision+1`,
+    ON CONFLICT(id) DO UPDATE SET config_json=excluded.config_json,enabled=excluded.enabled,is_default=excluded.is_default,health=excluded.health,checked_at=excluded.checked_at,diagnostic_json=CASE WHEN ? THEN diagnostic_json ELSE NULL END,latency_ms=CASE WHEN ? THEN latency_ms ELSE NULL END,revision=revision+1`,
         ).bind(
           model.id,
           JSON.stringify(model.config),
@@ -124,6 +145,7 @@ export function registerAIAdmin(
           +model.isDefault,
           health,
           sameRuntime ? old!.checked_at : null,
+          +sameRuntime,
           +sameRuntime,
         ),
       );
@@ -228,8 +250,8 @@ export function registerAIAdmin(
       "SELECT state,COUNT(*) count FROM mail_outbox GROUP BY state",
     ).all();
     const recent = await c.env.DB.prepare(
-      `SELECT a.id,a.purpose AS type,a.status,a.error_code,a.latency_ms,a.created_at AS updated_at,u.display_name AS caller,u.email FROM ai_invocations a JOIN users u ON u.id=a.user_id
-    UNION ALL SELECT m.id,'mail',m.state,m.error_code,NULL,m.created_at,u.display_name,u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id ORDER BY updated_at DESC LIMIT 100`,
+      `SELECT a.id,a.purpose AS type,a.status,a.error_code,a.diagnostic_json,a.latency_ms,a.created_at AS updated_at,u.display_name AS caller,u.email FROM ai_invocations a JOIN users u ON u.id=a.user_id
+    UNION ALL SELECT m.id,'mail',m.state,m.error_code,NULL,NULL,m.created_at,u.display_name,u.email FROM mail_outbox m LEFT JOIN users u ON u.id=m.user_id ORDER BY updated_at DESC LIMIT 100`,
     ).all();
     return c.json({
       checkedAt: new Date().toISOString(),

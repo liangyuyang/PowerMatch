@@ -127,6 +127,7 @@ export const modelConfigSchema = z
   );
 export type AIConfig = z.infer<typeof modelConfigSchema>;
 export interface AIModel extends AIConfig {
+  diagnostic?: import("./ai-diagnostic").AIDiagnostic | null;
   id: string;
   enabled: boolean;
   isDefault: boolean;

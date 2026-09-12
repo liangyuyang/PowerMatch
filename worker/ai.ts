@@ -25,6 +25,12 @@ import {
   costCny,
   type AIConfig,
 } from "../src/shared/ai-config";
+import {
+  AIRequestError,
+  diagnosticFor,
+  httpDiagnostic,
+  type AIDiagnostic,
+} from "../src/shared/ai-diagnostic";
 import { registerAIAdmin } from "./ai-admin";
 export { modelConfigSchema, providers } from "../src/shared/ai-config";
 
@@ -38,16 +44,20 @@ type Row = {
   checked_at: string | null;
   revision: number;
   latency_ms?: number | null;
+  diagnostic_json?: string | null;
 };
 type App = Hono<{
   Bindings: Env;
   Variables: { user: Viewer | null; guestHash: string };
 }>;
-const err = (error: string, status = 400) =>
-  new Response(JSON.stringify({ error }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+const err = (error: string, status = 400, diagnostic?: AIDiagnostic) =>
+  new Response(
+    JSON.stringify({ error, ...(diagnostic ? { diagnostic } : {}) }),
+    {
+      status,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 const configOf = (r: Row) => modelConfigSchema.parse(JSON.parse(r.config_json));
 async function keyFor(env: Env, config: Config, modelId?: string) {
   if (modelId) {
@@ -94,58 +104,102 @@ export async function providerCall(
 ) {
   const nativeGemini =
     config.baseUrl === "https://generativelanguage.googleapis.com/v1beta";
-  const response = await fetch(
-    nativeGemini
-      ? `${config.baseUrl}/models/${encodeURIComponent(config.model)}:generateContent`
-      : `${config.baseUrl}/chat/completions`,
-    {
-      method: "POST",
-      redirect: "error",
-      signal: AbortSignal.timeout(55000),
-      headers: {
-        ...(nativeGemini
-          ? { "x-goog-api-key": key }
-          : { Authorization: `Bearer ${key}` }),
-        "Content-Type": "application/json",
+  let response: Response;
+  try {
+    response = await fetch(
+      nativeGemini
+        ? `${config.baseUrl}/models/${encodeURIComponent(config.model)}:generateContent`
+        : `${config.baseUrl}/chat/completions`,
+      {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(55000),
+        headers: {
+          ...(nativeGemini
+            ? { "x-goog-api-key": key }
+            : { Authorization: `Bearer ${key}` }),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(
+          nativeGemini
+            ? {
+                systemInstruction: {
+                  parts: [
+                    {
+                      text: messages
+                        .filter((m) => m.role === "system")
+                        .map((m) => m.content)
+                        .join("\n"),
+                    },
+                  ],
+                },
+                contents: messages
+                  .filter((m) => m.role !== "system")
+                  .map((m) => ({
+                    role: m.role === "assistant" ? "model" : "user",
+                    parts: [{ text: m.content }],
+                  })),
+                generationConfig: {
+                  maxOutputTokens: 4096,
+                  responseMimeType: "application/json",
+                },
+              }
+            : {
+                model: config.model,
+                messages,
+                max_tokens: 4096,
+                ...(["deepseek", "gemini"].includes(config.provider)
+                  ? { response_format: { type: "json_object" } }
+                  : {}),
+              },
+        ),
       },
-      body: JSON.stringify(
-        nativeGemini
-          ? {
-              systemInstruction: {
-                parts: [
-                  {
-                    text: messages
-                      .filter((m) => m.role === "system")
-                      .map((m) => m.content)
-                      .join("\n"),
-                  },
-                ],
-              },
-              contents: messages
-                .filter((m) => m.role !== "system")
-                .map((m) => ({
-                  role: m.role === "assistant" ? "model" : "user",
-                  parts: [{ text: m.content }],
-                })),
-              generationConfig: {
-                maxOutputTokens: 4096,
-                responseMimeType: "application/json",
-              },
-            }
-          : {
-              model: config.model,
-              messages,
-              max_tokens: 4096,
-              ...(["deepseek", "gemini"].includes(config.provider)
-                ? { response_format: { type: "json_object" } }
-                : {}),
-            },
+    );
+  } catch (e) {
+    throw new AIRequestError(diagnosticFor(e, "request", key));
+  }
+  let data: any;
+  try {
+    data = await response.json();
+  } catch {
+    if (!response.ok)
+      throw new AIRequestError(
+        httpDiagnostic(
+          response.status,
+          null,
+          response.headers.get("x-request-id"),
+          key,
+        ),
+      );
+    throw new AIRequestError({
+      code: "provider-response-not-json",
+      stage: "response-json",
+      httpStatus: response.status,
+      message: `响应不是有效 JSON（Content-Type: ${response.headers.get("content-type")?.slice(0, 80) ?? "未提供"}）。`,
+      suggestion:
+        "检查 Base URL 是否指向 API 接口；供应商可能返回空响应或网页。",
+    });
+  }
+  if (!response.ok)
+    throw new AIRequestError(
+      httpDiagnostic(
+        response.status,
+        data,
+        response.headers.get("x-request-id") ??
+          response.headers.get("request-id"),
+        key,
       ),
-    },
-  );
-  if (!response.ok) throw new Error(`provider-http-${response.status}`);
-  const data: any = await response.json();
-  if (data.base_resp?.status_code) throw new Error("provider-rejected");
+    );
+  if (data.base_resp?.status_code)
+    throw new AIRequestError({
+      ...httpDiagnostic(
+        response.status,
+        data,
+        response.headers.get("x-request-id"),
+        key,
+      ),
+      code: "provider-rejected",
+    });
   const content = nativeGemini
     ? data.candidates?.[0]?.content?.parts
         ?.filter((p: any) => !p.thought)
@@ -158,7 +212,13 @@ export async function providerCall(
     data.choices?.[0]?.finish_reason === "length" ||
     data.candidates?.[0]?.finishReason === "MAX_TOKENS"
   )
-    throw new Error("provider-invalid-response");
+    throw new AIRequestError({
+      code: "provider-invalid-response",
+      stage: "response-format",
+      httpStatus: response.status,
+      message: "供应商返回空内容、超长内容或截断的回复。",
+      suggestion: "检查模型输出限制，或切换模型后重试。",
+    });
   let parsed: unknown;
   try {
     parsed = JSON.parse(
@@ -168,7 +228,13 @@ export async function providerCall(
         .replace(/\s*```$/, ""),
     );
   } catch {
-    throw new Error("provider-invalid-json");
+    throw new AIRequestError({
+      code: "provider-invalid-json",
+      stage: "response-format",
+      httpStatus: response.status,
+      message: "供应商回复内容不是有效的 JSON。",
+      suggestion: "模型未遵守 JSON 输出约束；重试或切换模型。",
+    });
   }
   const token = (x: unknown) =>
     typeof x === "number" && Number.isSafeInteger(x) && x >= 0 ? x : null;
@@ -235,14 +301,25 @@ async function invoke(
   let input: number | null = null,
     output: number | null = null,
     cost: number | null = null;
+  let stage = "key";
   try {
     const key = await keyFor(env, cfg, row.id);
-    if (!key) throw new Error("missing-key");
+    if (!key)
+      throw new AIRequestError({
+        code: "missing-key",
+        stage: "key",
+        message: "此模型没有可用的 API Key。",
+        suggestion:
+          "请填写并保存此模型的 API Key；若更换了接口地址，需要重新输入密钥。",
+      });
+    stage = "storage";
     const billing = await env.DB.prepare(
       "SELECT settings_json FROM ai_settings WHERE id=1",
     ).first<{ settings_json: string }>();
     const usdToCny = JSON.parse(billing!.settings_json).usdToCny;
+    stage = "request";
     const response = await providerCall(cfg, key, messages);
+    stage = "storage";
     input = response.input;
     output = response.output;
     cost = estimateCost(cfg, input, output);
@@ -262,7 +339,9 @@ async function invoke(
         invocation,
       )
       .run();
+    stage = "validate";
     const result = consume(response.parsed);
+    stage = "storage";
     await env.DB.prepare(
       "UPDATE ai_invocations SET status='ok',input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=? WHERE id=?",
     )
@@ -274,13 +353,36 @@ async function invoke(
       status: 200,
     };
   } catch (e) {
-    const error = safeError(e);
+    const known = safeError(e);
+    const detail = diagnosticFor(e, stage);
+    const error =
+      e instanceof AIRequestError
+        ? detail.code
+        : known === "ai-request-failed"
+          ? detail.code
+          : known;
+    const diagnostic: AIDiagnostic = {
+      ...detail,
+      code: error,
+      endpoint: cfg.baseUrl,
+      model: cfg.model,
+      invocationId: invocation,
+      checkedAt: new Date().toISOString(),
+    };
     await env.DB.prepare(
-      "UPDATE ai_invocations SET status='failed',error_code=?,input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=? WHERE id=?",
+      "UPDATE ai_invocations SET status='failed',error_code=?,input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=?,diagnostic_json=? WHERE id=?",
     )
-      .bind(error, input, output, cost, Date.now() - start, invocation)
+      .bind(
+        error,
+        input,
+        output,
+        cost,
+        Date.now() - start,
+        JSON.stringify(diagnostic),
+        invocation,
+      )
       .run();
-    return { error, status: error === "missing-key" ? 503 : 502 };
+    return { error, diagnostic, status: error === "missing-key" ? 503 : 502 };
   }
 }
 export function registerAI(app: App) {
@@ -324,6 +426,7 @@ export function registerAI(app: App) {
         revision: r.revision,
         keyConfigured: !!(await keyFor(c.env, configOf(r), r.id)),
         latencyMs: r.latency_ms ?? null,
+        diagnostic: r.diagnostic_json ? JSON.parse(r.diagnostic_json) : null,
         secretName: providers[configOf(r).provider].secret,
       })),
     );
@@ -469,13 +572,20 @@ export function registerAI(app: App) {
       (x) => z.object({ ok: z.literal(true) }).parse(x),
     );
     if (reply.status === 429) return err(reply.error!, 429);
-    await c.env.DB.prepare(
-      "UPDATE ai_models SET health=?,checked_at=CURRENT_TIMESTAMP,latency_ms=? WHERE id=? AND revision=?",
+    const healthUpdate = await c.env.DB.prepare(
+      "UPDATE ai_models SET health=?,checked_at=CURRENT_TIMESTAMP,latency_ms=?,diagnostic_json=? WHERE id=? AND revision=?",
     )
-      .bind(reply.error ?? "ok", Date.now() - started, row.id, row.revision)
+      .bind(
+        reply.error ?? "ok",
+        Date.now() - started,
+        reply.diagnostic ? JSON.stringify(reply.diagnostic) : null,
+        row.id,
+        row.revision,
+      )
       .run();
+    if (!healthUpdate.meta.changes) return err("config-conflict", 409);
     return reply.error
-      ? err(reply.error, reply.status)
+      ? err(reply.error, reply.status, reply.diagnostic)
       : c.json({ ok: true, usage: reply.usage });
   });
   registerAIAdmin(app, keyFor);
@@ -557,7 +667,7 @@ export function registerAI(app: App) {
       },
     );
     return reply.error
-      ? err(reply.error, reply.status)
+      ? err(reply.error, reply.status, reply.diagnostic)
       : c.json({
           ...(reply.result as object),
           usage: reply.usage,

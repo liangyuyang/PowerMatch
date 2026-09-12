@@ -9,6 +9,7 @@ import {
 } from "./shared/ai-config";
 import type { Locale } from "./shared/model";
 import "./model-settings.css";
+import { AIModelFeedback, AIDiagnosticView } from "./ai-model-feedback";
 
 async function api(path: string, data?: unknown) {
   const r = await fetch("/api/admin/ai" + path, {
@@ -642,7 +643,7 @@ export function AIAdmin({ locale }: { locale: Locale }) {
             disabled={busy || !models.length}
             onClick={() => void run(() => check())}
           >
-            {dirty ? "保存并刷新检查" : "刷新检查"}
+            {dirty ? "保存并检查所有模型" : "检查所有已启用模型"}
           </button>
         </div>
         <div className="ms-actions">
@@ -802,6 +803,7 @@ export function AIAdmin({ locale }: { locale: Locale }) {
                 <label className="field">
                   <span>币种</span>
                   <select
+                    aria-label="币种"
                     value={m.currency}
                     disabled={busy}
                     onChange={(e) =>
@@ -903,6 +905,11 @@ export function AIAdmin({ locale }: { locale: Locale }) {
                   </a>
                 )}
               </div>
+              <AIModelFeedback
+                model={m}
+                disabled={busy}
+                onPatch={(patch) => update(m.id, patch)}
+              />
             </article>
           ))}
         </div>
@@ -1048,7 +1055,15 @@ export function AIAdmin({ locale }: { locale: Locale }) {
                         {r.latency_ms == null ? "—" : `${r.latency_ms} ms`}
                       </td>
                       <td>
-                        {r.error_code ? message(Error(r.error_code)) : "—"}
+                        {r.diagnostic_json ? (
+                          <AIDiagnosticView
+                            diagnostic={JSON.parse(r.diagnostic_json)}
+                          />
+                        ) : r.error_code ? (
+                          message(Error(r.error_code))
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td title={r.email}>{r.caller ?? "—"}</td>
                       <td>{beijingTime(r.updated_at)}</td>
