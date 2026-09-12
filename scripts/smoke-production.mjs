@@ -15,6 +15,7 @@ for (const path of [
   "/api/admin/ai/diagnostics",
   "/assets/zenmeasure-blue.png",
   "/assets/MOT-U125-body-white.png",
+  "/assets/MOT-U125-body-proportional.png",
   "/assets/MHO-C404-body-white.png",
 ]) {
   const r = await fetch(origin + path);

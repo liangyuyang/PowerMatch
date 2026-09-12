@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-12T13:23:46.667Z",
+  "checkedAt": "2026-09-12T13:50:02.164Z",
   "origin": "https://powermatch.zenmeasure.space",
   "result": "passed",
   "checks": [
@@ -20,7 +20,7 @@
     {
       "path": "/api/components",
       "status": 200,
-      "count": 35
+      "count": 41
     },
     {
       "path": "/api/admin",
@@ -48,6 +48,10 @@
     },
     {
       "path": "/assets/MOT-U125-body-white.png",
+      "status": 200
+    },
+    {
+      "path": "/assets/MOT-U125-body-proportional.png",
       "status": 200
     },
     {
