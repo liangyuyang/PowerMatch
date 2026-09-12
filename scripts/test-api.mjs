@@ -90,6 +90,10 @@ async function request(
   };
 }
 const [employee, outsider, colleague, admin] = identities;
+fs.writeFileSync(
+  "tmp/test-admin-browser.json",
+  JSON.stringify({ token: admin.token }),
+);
 const linkToken = randomBytes(32).toString("hex");
 fs.writeFileSync(
   "tmp/test-link.sql",
@@ -275,6 +279,88 @@ await request("/api/cases/" + guestCase.id, {
   cookie: guest,
 });
 await request("/api/cases/" + pub.id, { method: "DELETE", user: employee });
+await request("/api/admin/ai", { expected: 403 });
+await request("/api/admin/ai", { user: outsider, expected: 403 });
+await request("/api/ai/assist", { method: "POST", data: {}, expected: 401 });
+const aiConfig = {
+  provider: "deepseek",
+  name: "Local test only",
+  model: "test-model",
+  inputPrice: null,
+  outputPrice: null,
+  currency: "CNY",
+};
+const aiId = `test-ai-${suffix}`;
+await request("/api/admin/ai", {
+  user: admin,
+  method: "POST",
+  data: {
+    id: aiId,
+    config: aiConfig,
+    enabled: false,
+    isDefault: false,
+    revision: 0,
+  },
+});
+await request("/api/admin/ai", {
+  user: admin,
+  method: "POST",
+  data: {
+    id: aiId,
+    config: aiConfig,
+    enabled: true,
+    isDefault: true,
+    revision: 1,
+  },
+  expected: 400,
+});
+await request("/api/admin/ai", {
+  user: admin,
+  method: "POST",
+  data: {
+    id: aiId,
+    config: aiConfig,
+    enabled: false,
+    isDefault: false,
+    revision: 0,
+  },
+  expected: 409,
+});
+await request("/api/ai/assist", {
+  user: employee,
+  method: "POST",
+  data: {
+    design: DEFAULT_DESIGN,
+    modelId: aiId,
+    locale: "zh",
+    message: "Test",
+    locks: ["load"],
+    history: [],
+  },
+  expected: 503,
+});
+const available = await request("/api/ai/models");
+assert.ok(!available.data.models.some((m) => m.id === aiId));
+assertions++;
+const aiAdmin = await request("/api/admin/ai", { user: admin });
+assert.ok(!JSON.stringify(aiAdmin.data).includes("ciphertext"));
+assertions++;
+await request(`/api/admin/ai/${aiId}/check`, {
+  user: admin,
+  method: "POST",
+  data: {},
+  expected: 503,
+});
+const missingKeyLog = await request("/api/admin/ai", { user: admin });
+assert.ok(
+  missingKeyLog.data.usage.some(
+    (x) =>
+      x.model_id === aiId &&
+      x.error_code === "missing-key" &&
+      x.user_id === admin.id,
+  ),
+);
+assertions++;
 console.log(
   JSON.stringify({
     test: "local API authorization and revisions",

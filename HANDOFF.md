@@ -35,6 +35,14 @@ Initial implementation 0.1.0 is deployed and available for review, not completio
 
 Continue full browser QA and the explicitly listed engineering/product backlog. Do not present planned features as implemented.
 
+## AI assistant release — 2026-09-12, Home PC
+
+User authorized implementation and requested DeepSeek, Gemini, MiniMax, MiMo, Grok and Qwen, with Patrick-only configuration and frontend model selection patterned after Leads. Added encrypted write-only key configuration, model enable/default/health controls, authenticated usage attribution and quotas, constrained catalog-backed AI design proposals with deterministic calculation, apply/undo/compare, stale-draft rejection, parameter-group locks, and clickable component nodes.
+
+Checks: 24 unit tests; 48 local API assertions; desktop/mobile browser interaction tests (close/Escape/backdrop/focus/draft, component chooser, admin layout, mock suggestion apply/undo/compare). No live AI credentials have been provided yet; provider health and real engineering conversation acceptance remain pending. No other app's keys were accessed/copied. Detailed setup, boundaries and official adapter sources: docs/ai-assistant.md.
+
+The AI code is ready for push/deployment in this checkpoint. Deployment result and exact revision will be recorded after production checks. Existing PV catalog gaps remain; this change does not claim complete automatic PV sizing, datasheet browsing/OCR or pin-level schematics. Current UI technical details use Chinese/English fallback. Conversation is in-memory and proposals require explicit Apply/Copy; editing measured load via AI and automatic inference of every manual lock remain follow-up work.
+
 ## Verified production checkpoint
 
 - URL: https://powermatch.zenmeasure.space

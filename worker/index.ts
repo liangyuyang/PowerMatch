@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import { registerAI } from "./ai";
 import {
   designSchema,
   locales,
@@ -21,6 +22,13 @@ import {
 } from "./security";
 
 export interface Env {
+  POWERMATCH_AI_ENCRYPTION_KEY?: string;
+  POWERMATCH_AI_GROK_KEY?: string | { get(): Promise<string> };
+  POWERMATCH_AI_QWEN_KEY?: string | { get(): Promise<string> };
+  POWERMATCH_AI_DEEPSEEK_KEY?: string | { get(): Promise<string> };
+  POWERMATCH_AI_GEMINI_KEY?: string | { get(): Promise<string> };
+  POWERMATCH_AI_MINIMAX_KEY?: string | { get(): Promise<string> };
+  POWERMATCH_AI_MIMO_KEY?: string | { get(): Promise<string> };
   DB: D1Database;
   SPECS: R2Bucket;
   ASSETS: Fetcher;
@@ -212,6 +220,7 @@ app.get("/api/health", async (c) => {
     emailConfigured: !!c.env.RESEND_API_KEY && !!c.env.RESEND_FROM,
   });
 });
+registerAI(app);
 app.get("/api/session", (c) => {
   if (!getCookie(c, "pm_guest"))
     setCookie(c, "pm_guest", randomToken(), {

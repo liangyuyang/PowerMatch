@@ -50,6 +50,8 @@ import { calculate, type Result } from "./shared/engine";
 import { CATALOG } from "./shared/catalog";
 import { t, explain, languageNames, type Word } from "./i18n";
 import "./style.css";
+import { AIAdmin, AIAssistant } from "./ai-ui";
+import { selectComponent } from "./shared/assistant";
 
 async function api(path: string, data?: unknown, method?: string) {
   const response = await fetch("/api" + path, {
@@ -99,10 +101,12 @@ function ModalShell({
   title,
   onClose,
   children,
+  variant,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  variant?: "drawer";
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -144,7 +148,7 @@ function ModalShell({
   }, []);
   return (
     <div
-      className="backdrop"
+      className={variant === "drawer" ? "backdrop drawer-backdrop" : "backdrop"}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -153,7 +157,7 @@ function ModalShell({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="modal"
+        className={variant === "drawer" ? "modal ai-drawer" : "modal"}
         ref={ref}
       >
         <div className="section-title">
@@ -168,6 +172,13 @@ function ModalShell({
   );
 }
 function App() {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [picker, setPicker] = useState<string | null>(null);
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [undoAI, setUndoAI] = useState<{
+    before: Design;
+    after: Design;
+  } | null>(null);
   const [preference, setPreference] = useState(
     () => localStorage.getItem("pm-language") ?? "auto",
   );
@@ -529,33 +540,42 @@ function App() {
   );
   const flow = (
     <div className="energy-flow">
-      <div>
+      <button
+        className="component-node"
+        onClick={() => setPicker(d.mode === "battery" ? "storage" : "pv")}
+      >
         <Sun size={28} />
         <span>{d.mode === "battery" ? tr("battery") : tr("pv")}</span>
         {d.mode !== "battery" && (
           <img src="/assets/indoor-pv.png" alt="Generic indoor PV" />
         )}
-      </div>
+      </button>
       <ArrowRight className="flow-arrow" />
-      <div>
+      <button
+        className="component-node"
+        onClick={() => setPicker("regulation")}
+      >
         <Lightning size={28} />
         <span>{d.path.toUpperCase()}</span>
         <small>{d.regulation.mppt ? "MPPT ✓" : "MPPT —"}</small>
-      </div>
+      </button>
       {d.mode !== "pv" && (
         <>
           <ArrowRight className="flow-arrow" />
-          <div>
+          <button
+            className="component-node"
+            onClick={() => setPicker("storage")}
+          >
             <Battery size={28} />
             <span>{d.storage.componentId}</span>
             <small>
               {d.storage.series}S{d.storage.parallel}P
             </small>
-          </div>
+          </button>
         </>
       )}
       <ArrowRight className="flow-arrow" />
-      <div>
+      <button className="component-node" onClick={() => setPicker("device")}>
         <img
           src={
             d.device === "MHO-C404"
@@ -566,7 +586,7 @@ function App() {
         />
         <span>{d.device}</span>
         <small>{d.load.voltage} V</small>
-      </div>
+      </button>
     </div>
   );
   return (
@@ -675,6 +695,21 @@ function App() {
           </div>
           {["workbench", "compare"].includes(page) && (
             <div className="toolbar">
+              <button onClick={() => setAiOpen(true)}>
+                <Chats />
+                {bi("AI 设计助手", "AI assistant")}
+              </button>
+              {undoAI && (
+                <button
+                  disabled={JSON.stringify(d) !== JSON.stringify(undoAI.after)}
+                  onClick={() => {
+                    setD(undoAI.before);
+                    setUndoAI(null);
+                  }}
+                >
+                  {bi("撤销 AI 调整", "Undo AI changes")}
+                </button>
+              )}
               <button
                 onClick={() => {
                   setSnapshots((s) => [...s.slice(-2), cloneDesign(d)]);
@@ -1600,6 +1635,7 @@ function App() {
         )}
         {page === "admin" && viewer?.admin && admin && (
           <div className="admin-grid">
+            <AIAdmin locale={locale} />
             <section className="panel">
               <h2>{bi("用户与访问权限", "Users & access")}</h2>
               {admin.users.map((u: any) => (
@@ -1691,6 +1727,137 @@ function App() {
           GitHub ↗
         </a>
       </footer>
+      <AIAssistant
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        Dialog={ModalShell}
+        design={d}
+        locale={locale}
+        viewer={viewer}
+        onLogin={() => {
+          setAiOpen(false);
+          setModal("login");
+        }}
+        onApply={(base, next) => {
+          if (JSON.stringify(d) !== JSON.stringify(base)) {
+            setNotice(
+              bi(
+                "设计已改变，请重新生成建议。",
+                "Design changed; request a new proposal.",
+              ),
+            );
+            return;
+          }
+          setUndoAI({ before: cloneDesign(d), after: cloneDesign(next) });
+          setD(cloneDesign(next));
+        }}
+        onCompare={(next) => {
+          setSnapshots((s) => [...s.slice(-2), cloneDesign(next)]);
+          setPage("compare");
+        }}
+      />
+      {picker && (
+        <ModalShell
+          title={bi("选择元器件", "Choose a component")}
+          onClose={() => setPicker(null)}
+        >
+          {picker === "device" ? (
+            <>
+              <p>
+                {bi(
+                  "Tiny 有耗电时序；MHO-C404 尚缺实测耗电数据。",
+                  "Tiny has a load profile; MHO-C404 still needs measured power data.",
+                )}
+              </p>
+              <button
+                onClick={() => {
+                  setD({ ...d, device: "MOT-U125", load: cloneDesign().load });
+                  setPicker(null);
+                }}
+              >
+                穿山甲 Tiny · MOT-U125
+              </button>
+              <button
+                onClick={() => {
+                  setD({
+                    ...d,
+                    device: "MHO-C404",
+                    load: {
+                      voltage: 3,
+                      minVoltage: 2,
+                      maxVoltage: 3.3,
+                      phases: [
+                        { name: "Unconfirmed", seconds: 1, currentUa: 0 },
+                      ],
+                    },
+                  });
+                  setPicker(null);
+                }}
+              >
+                MHO-C404 · {bi("资料待补全", "Incomplete data")}
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                aria-label={bi("搜索元器件", "Search components")}
+                placeholder={bi(
+                  "搜索型号、厂商、OPV、a-Si…",
+                  "Search model, maker, OPV, a-Si…",
+                )}
+                value={pickerSearch}
+                onChange={(e) => setPickerSearch(e.target.value)}
+              />
+              <p>
+                {bi(
+                  "选择型号自动填入库内参数；缺失数据保留待补全，效率等现有假设仍需检查。供电方式保持不变。",
+                  "Selecting a model fills catalog parameters. Missing data stays unknown; retained efficiency assumptions need review. Supply mode is preserved.",
+                )}
+              </p>
+              <div className="ai-model-list">
+                {components
+                  .filter(
+                    (c) =>
+                      (picker === "pv"
+                        ? c.category === "pv"
+                        : picker === "regulation"
+                          ? ["ldo", "pmic"].includes(c.category)
+                          : [
+                              "battery",
+                              "lic",
+                              "supercap",
+                              "supercapacitor",
+                              "rechargeable",
+                            ].includes(c.category)) &&
+                      JSON.stringify([c.name, c.manufacturer, c.parameters])
+                        .toLowerCase()
+                        .includes(pickerSearch.toLowerCase()),
+                  )
+                  .map((c) => (
+                    <button
+                      className="ai-model"
+                      key={c.id}
+                      onClick={() => {
+                        try {
+                          setD(selectComponent(d, c));
+                          setPicker(null);
+                        } catch (e) {
+                          setNotice(String(e));
+                        }
+                      }}
+                    >
+                      <b>{c.name}</b>
+                      <span>
+                        {c.manufacturer} · {c.category}
+                      </span>
+                      <small>{c.description}</small>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+        </ModalShell>
+      )}
       {modal && (
         <ModalShell
           title={tr(

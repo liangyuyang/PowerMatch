@@ -385,7 +385,8 @@ select {
   gap: 6px;
   min-height: 145px;
 }
-.energy-flow > div {
+.energy-flow > div,
+.energy-flow > .component-node {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -400,7 +401,8 @@ select {
   height: 64px;
   object-fit: contain;
 }
-.energy-flow > div > span {
+.energy-flow > div > span,
+.component-node > span {
   max-width: 110px;
   overflow-wrap: anywhere;
 }
@@ -971,4 +973,225 @@ summary {
   font-size: 11px;
   line-height: 1.6;
   margin: 10px 0 0;
+}
+.component-node {
+  border: 1px solid transparent;
+  background: #f4f8fe;
+  padding: 10px 3px;
+  border-radius: 12px;
+}
+.component-node:hover,
+.component-node:focus-visible {
+  border-color: #2563eb;
+  background: #e8f1ff;
+}
+.ai-admin {
+  grid-column: 1 / -1;
+}
+.drawer-backdrop {
+  justify-content: flex-end;
+  padding: 0;
+  backdrop-filter: none;
+}
+.ai-drawer {
+  width: 600px;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 16px 0 0 16px;
+}
+@media (max-width: 650px) {
+  .ai-drawer {
+    width: 100%;
+    border-radius: 0;
+  }
+}
+.ai-admin p,
+.ai-assistant p {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.ai-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.ai-model {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 6px;
+  padding: 16px;
+  border-left: 4px solid #2868ce;
+  white-space: normal;
+}
+.ai-model small,
+.ai-model span {
+  color: #4b5e77;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ai-model.gemini {
+  border-left-color: #8b5cf6;
+}
+.ai-model.minimax {
+  border-left-color: #dc4675;
+}
+.ai-model.mimo {
+  border-left-color: #ce710a;
+}
+.ai-model.grok {
+  border-left-color: #333;
+}
+.ai-model.qwen {
+  border-left-color: #6758cb;
+}
+.ai-config-form {
+  max-width: 800px;
+  border-top: 1px solid #dbe4ef;
+  padding-top: 16px;
+}
+.ai-endpoint {
+  overflow-wrap: anywhere;
+  color: #52657c;
+}
+.ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 14px 0;
+}
+.ai-actions select {
+  flex: 1;
+  min-width: 180px;
+}
+.ai-actions input[type="checkbox"],
+.ai-locks input {
+  width: auto;
+  margin-right: 6px;
+}
+.ai-key-form {
+  padding: 18px;
+  margin: 18px 0;
+  background: #f4f7fc;
+  border-radius: 12px;
+}
+.ai-key-form input,
+.ai-key-form select {
+  margin-bottom: 10px;
+}
+.ai-usage {
+  max-height: 300px;
+  overflow: auto;
+  font-size: 12px;
+}
+.ai-usage > div {
+  padding: 10px;
+  border-bottom: 1px solid #dce5f0;
+}
+.ai-usage small {
+  display: block;
+  color: #536278;
+  margin-top: 5px;
+}
+.ai-locks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 0;
+  font-size: 12px;
+}
+.ai-conversation {
+  max-height: 260px;
+  overflow: auto;
+  margin: 16px 0;
+}
+.ai-message {
+  padding: 12px 16px;
+  margin: 8px 0;
+  border-radius: 12px;
+  background: #f0f5fc;
+}
+.ai-message.user {
+  background: #e5efff;
+  margin-left: 30px;
+}
+.ai-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0;
+}
+.ai-message small {
+  color: #405876;
+}
+.ai-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.ai-prompts button {
+  font-size: 12px;
+  white-space: normal;
+  text-align: left;
+}
+.ai-assistant textarea {
+  min-height: 100px;
+}
+.ai-proposal {
+  border: 1px solid #c6d8f0;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 18px;
+}
+.ai-diff {
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12px;
+}
+.ai-diff > div {
+  padding: 8px 0;
+  border-bottom: 1px solid #dce5f0;
+}
+.ai-diff span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ai-diff b {
+  color: #1657ba;
+}
+.ai-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 16px 0;
+}
+.ai-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #edf4ff;
+  padding: 12px;
+  border-radius: 10px;
+}
+.ai-metrics b {
+  font-size: 24px;
+}
+.ai-metrics span {
+  font-size: 12px;
+}
+.ai-warning {
+  color: #855411;
+}
+.ai-assistant details {
+  margin: 14px 0;
+}
+@media print {
+  .ai-admin,
+  .ai-assistant,
+  .component-node {
+    box-shadow: none;
+  }
 }
