@@ -53,6 +53,8 @@ import { t, explain, languageNames, type Word } from "./i18n";
 import "./style.css";
 import { AIAdmin, AIAssistant } from "./ai-ui";
 import { selectComponent } from "./shared/assistant";
+import { ComponentHover } from "./component-hover";
+import { NumericInput } from "./numeric-input";
 
 async function api(path: string, data?: unknown, method?: string) {
   const response = await fetch("/api" + path, {
@@ -348,19 +350,10 @@ function App() {
               : tr("default")}
         </small>
       </span>
-      <input
-        type="number"
-        step="any"
-        value={value ?? ""}
-        placeholder="—"
-        onChange={(e) =>
-          onChange(
-            e.target.value === ""
-              ? nullable
-                ? null
-                : 0
-              : Number(e.target.value),
-          )
+      <NumericInput
+        value={value}
+        onChange={(raw) =>
+          onChange(raw === "" ? (nullable ? null : 0) : Number(raw))
         }
       />
     </label>
@@ -432,15 +425,38 @@ function App() {
       setSpecs((await api("/components/" + c.id + "/specs")).specs),
     );
   };
+  useEffect(() => {
+    const openLinked = () => {
+      if (!location.hash.startsWith("#component=")) return;
+      let id: string;
+      try {
+        id = decodeURIComponent(location.hash.slice(11));
+      } catch {
+        return;
+      }
+      const c =
+        components.find((c) => c.id === id) ?? CATALOG.find((c) => c.id === id);
+      if (c) {
+        setPage("library");
+        void showComponent(c);
+      }
+    };
+    openLinked();
+    window.addEventListener("hashchange", openLinked);
+    return () => window.removeEventListener("hashchange", openLinked);
+  }, [components]);
   const useComponent = (c: Component) => {
     const p = c.parameters;
-    setD(old => {
+    setD((old) => {
       const n = selectComponent(old, c);
       if (c.category === "pv") n.mode = "pv";
-      if (c.category === "battery") {n.mode="battery"; n.regulation.charger=false;}
-      if (["lic","supercap","rechargeable"].includes(c.category)) {
-        const base=changeStorage({...n,mode:"hybrid"},n.storage.kind);
-        return {...base,storage:n.storage};
+      if (c.category === "battery") {
+        n.mode = "battery";
+        n.regulation.charger = false;
+      }
+      if (["lic", "supercap", "rechargeable"].includes(c.category)) {
+        const base = changeStorage({ ...n, mode: "hybrid" }, n.storage.kind);
+        return { ...base, storage: n.storage };
       }
       return n;
     });
@@ -509,55 +525,115 @@ function App() {
       )}
     </div>
   );
+  const componentInfo = (
+    kind: "pv" | "storage" | "regulation" | "device",
+    child: React.ReactNode,
+  ) => {
+    const id =
+      kind === "device"
+        ? d.device === "MHO-C404"
+          ? "mho-eink"
+          : "tiny-lcd"
+        : d[kind].componentId;
+    const c = components.find((c) => c.id === id) ??
+      CATALOG.find((c) => c.id === id) ?? {
+        id,
+        name: id,
+        category: kind,
+        manufacturer: "PowerMatch",
+        official: false,
+        verified: false,
+        source: "",
+        description: "当前设计配置 / Current design configuration",
+        parameters: {},
+      };
+    const summary =
+      kind === "pv"
+        ? `${fmt(d.pv.areaCm2)} cm² · ${d.pv.voltage === null ? "—" : fmt(d.pv.voltage)} V · ${d.pv.densityUwCm2 === null ? "—" : fmt(d.pv.densityUwCm2)} µW/cm² @ ${fmt(d.pv.referenceLux)} lux`
+        : kind === "storage"
+          ? `${d.storage.series}S${d.storage.parallel}P · ${["lic", "supercap"].includes(d.storage.kind) ? `${fmt(d.storage.farads ?? 0)} F` : `${fmt(d.storage.capacityMah ?? 0)} mAh`} · ${fmt(d.storage.minVoltage ?? 0)}–${fmt(d.storage.maxVoltage ?? 0)} V`
+          : kind === "regulation"
+            ? `${d.path.toUpperCase()} · MPPT ${d.regulation.mppt ? "✓" : "—"} · ${fmt((d.regulation.iqUa ?? 0) * 1000)} nA`
+            : `${d.device} · ${fmt(d.load.voltage)} V · ${fmt(result?.averageUa ?? 0)} µA`;
+    return (
+      <ComponentHover
+        component={c}
+        summary={summary}
+        onDetails={(c) => {
+          history.replaceState(
+            null,
+            "",
+            `#component=${encodeURIComponent(c.id)}`,
+          );
+          setPage("library");
+          void showComponent(c);
+        }}
+      >
+        {child}
+      </ComponentHover>
+    );
+  };
   const flow = (
     <div className="energy-flow">
-      <button
-        className="component-node"
-        onClick={() => setPicker(d.mode === "battery" ? "storage" : "pv")}
-      >
-        <Sun size={28} />
-        <span>{d.mode === "battery" ? tr("battery") : tr("pv")}</span>
-        {d.mode !== "battery" && (
-          <img src="/assets/indoor-pv.png" alt="Generic indoor PV" />
-        )}
-      </button>
+      {componentInfo(
+        d.mode === "battery" ? "storage" : "pv",
+        <button
+          className="component-node"
+          onClick={() => setPicker(d.mode === "battery" ? "storage" : "pv")}
+        >
+          <Sun size={28} />
+          <span>{d.mode === "battery" ? tr("battery") : tr("pv")}</span>
+          {d.mode !== "battery" && (
+            <img src="/assets/indoor-pv.png" alt="Generic indoor PV" />
+          )}
+        </button>,
+      )}
       <ArrowRight className="flow-arrow" />
-      <button
-        className="component-node"
-        onClick={() => setPicker("regulation")}
-      >
-        <Lightning size={28} />
-        <span>{d.path.toUpperCase()}</span>
-        <small>{d.regulation.mppt ? "MPPT ✓" : "MPPT —"}</small>
-      </button>
+      {componentInfo(
+        "regulation",
+        <button
+          className="component-node"
+          onClick={() => setPicker("regulation")}
+        >
+          <Lightning size={28} />
+          <span>{d.path.toUpperCase()}</span>
+          <small>{d.regulation.mppt ? "MPPT ✓" : "MPPT —"}</small>
+        </button>,
+      )}
       {d.mode !== "pv" && (
         <>
           <ArrowRight className="flow-arrow" />
-          <button
-            className="component-node"
-            onClick={() => setPicker("storage")}
-          >
-            <Battery size={28} />
-            <span>{d.storage.componentId}</span>
-            <small>
-              {d.storage.series}S{d.storage.parallel}P
-            </small>
-          </button>
+          {componentInfo(
+            "storage",
+            <button
+              className="component-node"
+              onClick={() => setPicker("storage")}
+            >
+              <Battery size={28} />
+              <span>{d.storage.componentId}</span>
+              <small>
+                {d.storage.series}S{d.storage.parallel}P
+              </small>
+            </button>,
+          )}
         </>
       )}
       <ArrowRight className="flow-arrow" />
-      <button className="component-node" onClick={() => setPicker("device")}>
-        <img
-          src={
-            d.device === "MHO-C404"
-              ? "/assets/MHO-C404-body-white.png"
-              : "/assets/MOT-U125-body-proportional.png"
-          }
-          alt={d.device}
-        />
-        <span>{d.device}</span>
-        <small>{d.load.voltage} V</small>
-      </button>
+      {componentInfo(
+        "device",
+        <button className="component-node" onClick={() => setPicker("device")}>
+          <img
+            src={
+              d.device === "MHO-C404"
+                ? "/assets/MHO-C404-body-white.png"
+                : "/assets/MOT-U125-body-proportional.png"
+            }
+            alt={d.device}
+          />
+          <span>{d.device}</span>
+          <small>{d.load.voltage} V</small>
+        </button>,
+      )}
     </div>
   );
   return (
@@ -566,7 +642,13 @@ function App() {
         <a href="/" className="brand">
           <img src="/assets/zenmeasure-blue.png" alt="ZenMeasure" />
           <span>
-            PowerMatch<small>ENERGY DESIGN STUDIO <span className="app-version" title={`Git ${__APP_REVISION__}`}>{__APP_VERSION__}</span></small>
+            PowerMatch
+            <small>
+              ENERGY DESIGN STUDIO{" "}
+              <span className="app-version" title={`Git ${__APP_REVISION__}`}>
+                {__APP_VERSION__} · {__APP_DATE__}
+              </span>
+            </small>
           </span>
         </a>
         <nav>
@@ -901,7 +983,12 @@ function App() {
                     ))}
                   </div>
                   {flow}
-                  <p className="caption">{bi("已预填完整演算配置，可直接调整。assumed 型号为假设模板；效率、内阻、光谱换算为演算假设，并非厂家保证值。", "Ready-to-calculate defaults. assumed parts, efficiency, resistance and spectrum conversion are simulation assumptions, not manufacturer guarantees.")}</p>
+                  <p className="caption">
+                    {bi(
+                      "已预填完整演算配置，可直接调整。assumed 型号为假设模板；效率、内阻、光谱换算为演算假设，并非厂家保证值。",
+                      "Ready-to-calculate defaults. assumed parts, efficiency, resistance and spectrum conversion are simulation assumptions, not manufacturer guarantees.",
+                    )}
+                  </p>
                   <p className="caption">
                     {bi(
                       "能量路径示意 · 元器件图不代表可投产原理图",
@@ -935,14 +1022,53 @@ function App() {
                       {field("light", "days", tr("days"))}
                       {field("light", "hours", tr("hours"))}
                       {field("light", "startHour", tr("start"))}
-                      <label className={`field ${d.light.planeMeasured ? "angle-disabled" : ""}`}>
-                        {bi("光线照向板面的角度", "Light direction onto the panel")}
-                        <select aria-label={bi("光线照向板面的角度", "Light direction onto the panel")} disabled={d.light.planeMeasured} value={d.light.angle} onChange={(e) => update("light", "angle", Number(e.target.value))}>
-                          <option value={0}>{bi("最佳角度：垂直入射（正对光源）", "Best: directly facing the light")}</option>
-                          <option value={45}>{bi("比较糟糕：45° 斜射", "Worse: 45° tilt")}</option>
-                          <option value={22.5}>{bi("介于以上两者之间（按 22.5° 估算）", "In between (22.5° estimate)")}</option>
-                          <option value={67.5}>{bi("比 45° 还糟（按 67.5° 估算）", "Worse than 45° (67.5° estimate)")}</option>
-                          {![0,45,22.5,67.5].includes(d.light.angle) && <option value={d.light.angle}>{bi("已有自定义角度", "Existing custom angle")} · {d.light.angle}°</option>}
+                      <label
+                        className={`field angle-field ${d.light.planeMeasured ? "angle-disabled" : ""}`}
+                      >
+                        <span>
+                          {bi(
+                            "光线照向板面的角度",
+                            "Light direction onto the panel",
+                          )}
+                        </span>
+                        <select
+                          aria-label={bi(
+                            "光线照向板面的角度",
+                            "Light direction onto the panel",
+                          )}
+                          disabled={d.light.planeMeasured}
+                          value={d.light.angle}
+                          onChange={(e) =>
+                            update("light", "angle", Number(e.target.value))
+                          }
+                        >
+                          <option value={0}>
+                            {bi(
+                              "最佳角度：垂直入射（正对光源）",
+                              "Best: directly facing the light",
+                            )}
+                          </option>
+                          <option value={45}>
+                            {bi("比较糟糕：45° 斜射", "Worse: 45° tilt")}
+                          </option>
+                          <option value={22.5}>
+                            {bi(
+                              "介于以上两者之间（按 22.5° 估算）",
+                              "In between (22.5° estimate)",
+                            )}
+                          </option>
+                          <option value={67.5}>
+                            {bi(
+                              "比 45° 还糟（按 67.5° 估算）",
+                              "Worse than 45° (67.5° estimate)",
+                            )}
+                          </option>
+                          {![0, 45, 22.5, 67.5].includes(d.light.angle) && (
+                            <option value={d.light.angle}>
+                              {bi("已有自定义角度", "Existing custom angle")} ·{" "}
+                              {d.light.angle}°
+                            </option>
+                          )}
                         </select>
                       </label>
                     </div>
@@ -959,7 +1085,16 @@ function App() {
                         "Illuminance measured on the panel plane (no double angle correction)",
                       )}
                     </label>
-                    <p className="caption">{bi(d.light.planeMeasured ? "读数已包含倾斜影响，角度选项已停用，不再重复打折。" : "如果只是估计房间亮度，使用上方角度估算板面收到的光。", d.light.planeMeasured ? "The reading includes tilt. Angle correction is disabled." : "For estimated room brightness, use the angle above to approximate light reaching the panel.")}</p>
+                    <p className="caption">
+                      {bi(
+                        d.light.planeMeasured
+                          ? "读数已包含倾斜影响，角度选项已停用，不再重复打折。"
+                          : "如果只是估计房间亮度，使用上方角度估算板面收到的光。",
+                        d.light.planeMeasured
+                          ? "The reading includes tilt. Angle correction is disabled."
+                          : "For estimated room brightness, use the angle above to approximate light reaching the panel.",
+                      )}
+                    </p>
                     <div className="week">
                       {["M", "T", "W", "T", "F", "S", "S"].map((v, i) => (
                         <div key={i} className={i < d.light.days ? "lit" : ""}>
@@ -971,12 +1106,39 @@ function App() {
                     <h3>
                       {tr("pv")} · {d.pv.componentId}
                     </h3>
-                    <label className="field">{bi("光伏材料 · 自动配置", "PV material · ready preset")}
-                      <select aria-label={bi("光伏材料 · 自动配置", "PV material · ready preset")} value={d.pv.componentId} onChange={(e) => {const c=CATALOG.find(c=>c.id===e.target.value);if(c)setD(selectComponent(d,c));}}>
-                        <option value="powerfilm-ll200-24-75">非晶硅 · PowerFilm LL200-2.4-75</option>
-                        <option value="assumed-opv-leh3">OPV · LEH3 演算模板</option>
-                        <option value="assumed-perovskite">钙钛矿 · 假设模板</option>
-                        {!["powerfilm-ll200-24-75","assumed-opv-leh3","assumed-perovskite"].includes(d.pv.componentId) && <option value={d.pv.componentId}>{d.pv.componentId}</option>}
+                    <label className="field">
+                      {bi("光伏材料 · 自动配置", "PV material · ready preset")}
+                      <select
+                        aria-label={bi(
+                          "光伏材料 · 自动配置",
+                          "PV material · ready preset",
+                        )}
+                        value={d.pv.componentId}
+                        onChange={(e) => {
+                          const c = CATALOG.find(
+                            (c) => c.id === e.target.value,
+                          );
+                          if (c) setD(selectComponent(d, c));
+                        }}
+                      >
+                        <option value="powerfilm-ll200-24-75">
+                          非晶硅 · PowerFilm LL200-2.4-75
+                        </option>
+                        <option value="assumed-opv-leh3">
+                          OPV · LEH3 演算模板
+                        </option>
+                        <option value="assumed-perovskite">
+                          钙钛矿 · 假设模板
+                        </option>
+                        {![
+                          "powerfilm-ll200-24-75",
+                          "assumed-opv-leh3",
+                          "assumed-perovskite",
+                        ].includes(d.pv.componentId) && (
+                          <option value={d.pv.componentId}>
+                            {d.pv.componentId}
+                          </option>
+                        )}
                       </select>
                     </label>
                     <div className="grid2">
@@ -1079,7 +1241,38 @@ function App() {
                       ["converter", "DC/DC"],
                       ["direct", bi("直接连接", "Direct connection")],
                     ],
-                    (v) => setD({ ...d, path: v as Design["path"], regulation: v === "converter" ? {...d.regulation,componentId:"assumed-harvester-regulator",iqUa:0.5,efficiency:0.8,harvestEfficiency:0.8} : v === "ldo" ? {...cloneDesign().regulation,charger:d.mode === "hybrid" && d.storage.kind !== "primary",componentId:d.mode === "hybrid" && d.storage.kind !== "primary" ? "TPS7A02 + assumed charger" : "tps7a02"} : {...d.regulation,componentId:"direct",iqUa:0,mppt:false} }),
+                    (v) =>
+                      setD({
+                        ...d,
+                        path: v as Design["path"],
+                        regulation:
+                          v === "converter"
+                            ? {
+                                ...d.regulation,
+                                componentId: "assumed-harvester-regulator",
+                                iqUa: 0.5,
+                                efficiency: 0.8,
+                                harvestEfficiency: 0.8,
+                              }
+                            : v === "ldo"
+                              ? {
+                                  ...cloneDesign().regulation,
+                                  charger:
+                                    d.mode === "hybrid" &&
+                                    d.storage.kind !== "primary",
+                                  componentId:
+                                    d.mode === "hybrid" &&
+                                    d.storage.kind !== "primary"
+                                      ? "TPS7A02 + assumed charger"
+                                      : "tps7a02",
+                                }
+                              : {
+                                  ...d.regulation,
+                                  componentId: "direct",
+                                  iqUa: 0,
+                                  mppt: false,
+                                },
+                      }),
                   )}
                   <div className="grid2">
                     {field(

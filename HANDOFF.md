@@ -105,3 +105,9 @@ Released application commit 6698415 to origin/main, then deployed Worker and bun
 User additionally requires a discreet top version and automatic version updates after coding. Vite now derives V0.1.N from the first-parent Git commit count at build time, exposes the source revision on hover and emits version.json. Commit/push before production build remains required; rebuilding the same commit keeps the same version. This avoids manual version edits and unrelated apps' version changes.
 
 Version UI shipped as V0.1.22, source commit 5987477, Worker 8bce715d-ced2-4b69-86db-d00022461d14. Production version.json independently confirms V0.1.22 / 5987477. Build and desktop/mobile layout regression passed. Subsequent documentation-only commits do not change this deployed artifact.
+
+## Numeric display, energy flow and component previews — 2026-09-12, HOMEPC
+
+Added Beijing build date to top version and version.json (YYYY.M.D). Workbench numeric inputs show at most two decimal places when unfocused while preserving full calculation precision and precise values during editing. Angle selector now spans the remaining two columns with aligned field labels. Energy arrows drift slowly over a 4-second cycle and stop under prefers-reduced-motion. Selected energy-path components have hover/focus/touch previews with current design values, provenance caveats and a component detail link supporting #component=ID.
+
+45 unit tests and build passed. New local desktop/mobile browser test verifies date, 4.21 display without losing underlying precision, aligned/widened angle control, reachable hover links, close/Escape/click-away/focus return, detail navigation with retained design and mobile sizing. Touch info trigger and reduced-motion behavior passed. No database changes or real AI/email calls. Production checkpoint follows after commit/push and deployment.

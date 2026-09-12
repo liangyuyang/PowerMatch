@@ -117,7 +117,14 @@ header .brand {
   gap: 22px;
   color: #111e39;
 }
-.brand .app-version {font-size:10px; font-weight:500; letter-spacing:0; color:#59677c; margin-left:6px; white-space:nowrap}
+.brand .app-version {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #59677c;
+  margin-left: 6px;
+  white-space: nowrap;
+}
 .brand img {
   width: 120px;
 }
@@ -403,13 +410,134 @@ select {
   object-fit: contain;
 }
 
-button.ai-launch { color: white; border: 0; font-weight: 750; background: linear-gradient(115deg,#2349ac,#7238ab,#14677c,#2349ac); background-size: 300% 100%; animation: ai-colors 8s ease infinite; }
-button.ai-launch:hover { filter: brightness(1.12); }
-@keyframes ai-colors { 0%,100% {background-position:0% 50%} 50% {background-position:100% 50%} }
-@media (prefers-reduced-motion: reduce) { button.ai-launch {animation:none} }
-.angle-disabled {opacity:.55}
-.angle-disabled select {cursor:not-allowed; background:#e8ebef}
-img[src*="MOT-U125"],img[src*="MHO-C404"] {object-fit:contain; flex-shrink:0; max-width:100%}
+button.ai-launch {
+  color: white;
+  border: 0;
+  font-weight: 750;
+  background: linear-gradient(115deg, #2349ac, #7238ab, #14677c, #2349ac);
+  background-size: 300% 100%;
+  animation: ai-colors 8s ease infinite;
+}
+button.ai-launch:hover {
+  filter: brightness(1.12);
+}
+@keyframes ai-colors {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.ai-launch {
+    animation: none;
+  }
+}
+.angle-disabled {
+  opacity: 0.55;
+}
+.component-hover {
+  position: relative;
+  align-self: stretch;
+  justify-content: center;
+}
+.component-hover > .component-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  white-space: normal;
+}
+.component-info-trigger {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  padding: 2px 5px;
+  font-size: 12px;
+  border: 0;
+  background: transparent;
+}
+.component-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% - 2px);
+  left: 0;
+  width: 260px;
+  max-width: calc(100vw - 48px);
+  text-align: left;
+  background: white;
+  border: 1px solid #cbd6e5;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 8px 28px #172c4a26;
+  font-size: 12px;
+}
+.component-hover:last-child .component-popover {
+  left: auto;
+  right: 0;
+}
+.component-popover strong,
+.component-popover small {
+  display: block;
+  padding-right: 18px;
+  overflow-wrap: anywhere;
+}
+.component-popover p {
+  margin: 8px 0;
+}
+.component-popover a {
+  display: inline-block;
+  font-weight: 600;
+  padding: 6px 0;
+}
+.popover-close {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  border: 0;
+  padding: 2px 6px;
+}
+.angle-field {
+  grid-column: span 2;
+  min-width: 0;
+}
+.flow-arrow {
+  animation: energy-drift 4s ease-in-out infinite;
+}
+@keyframes energy-drift {
+  0%,
+  100% {
+    transform: translateX(-2px);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateX(3px);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-arrow {
+    animation: none;
+  }
+}
+@media (max-width: 700px) {
+  .angle-field {
+    grid-column: 1/-1;
+  }
+}
+.angle-disabled select {
+  cursor: not-allowed;
+  background: #e8ebef;
+}
+img[src*="MOT-U125"],
+img[src*="MHO-C404"] {
+  object-fit: contain;
+  flex-shrink: 0;
+  max-width: 100%;
+}
 .energy-flow > div > span,
 .component-node > span {
   max-width: 110px;
