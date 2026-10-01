@@ -612,6 +612,18 @@ export const explanation: Record<string, [string, string]> = {
     "Enter PV power density for the reference spectrum and illuminance.",
   ],
   "pv-voltage": ["补充光伏工作点电压。", "Enter PV operating-point voltage."],
+  "mppt-requires-harvester": [
+    "MPPT 需要具备该功能的采能转换器；LDO 和直通路径不能当作 MPPT。",
+    "MPPT requires a capable harvesting converter; an LDO or direct path cannot provide it.",
+  ],
+  "charger-requires-converter": [
+    "充电管理需要适配的转换器，不能由 LDO 或直通路径提供。",
+    "Charging requires a compatible converter, not an LDO or direct path.",
+  ],
+  "component-capability-mismatch": [
+    "所选元器件不具备设计中启用的 MPPT 或充电功能。",
+    "The selected component does not provide the enabled MPPT or charging capability.",
+  ],
   "charger-required": [
     "可充电储能需要适配的充电管理路径。",
     "Rechargeable storage requires a compatible charging path.",

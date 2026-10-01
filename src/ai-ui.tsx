@@ -2,15 +2,22 @@ import React, { useEffect, useRef, useState } from "react";
 import type { Design, Locale, Viewer } from "./shared/model";
 import { lockGroups, type LockGroup } from "./shared/assistant";
 import { explain } from "./i18n";
+import type { AIDiagnostic } from "./shared/ai-diagnostic";
 
-async function request(path: string, data?: unknown) {
+class AssistantRequestError extends Error {
+  constructor(message: string, public diagnostic: AIDiagnostic | null) {
+    super(message);
+  }
+}
+async function request(path: string, data?: unknown, signal?: AbortSignal) {
   const r = await fetch("/api" + path, {
     method: data ? "POST" : "GET",
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
+    signal,
   });
-  const x: any = await r.json();
-  if (!r.ok) throw new Error(x.error || `HTTP ${r.status}`);
+  const x: any = await r.json().catch(() => ({}));
+  if (!r.ok) throw new AssistantRequestError(x.error || `HTTP ${r.status}`, x.diagnostic ?? null);
   return x;
 }
 const providerNames: Record<string, string> = {
@@ -131,6 +138,7 @@ export function AIAssistant({
 }) {
   const identityEpoch = useRef(0);
   const explicitModel = useRef(false);
+  const pendingRequest = useRef<AbortController | null>(null);
   const zh = locale === "zh",
     bi = (a: string, b: string) => (zh ? a : b);
   const [models, setModels] = useState<any[]>([]),
@@ -141,6 +149,7 @@ export function AIAssistant({
     >([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
+    [errorDiagnostic, setErrorDiagnostic] = useState<AIDiagnostic | null>(null),
     [reply, setReply] = useState<any>(null),
     [base, setBase] = useState<Design | null>(null),
     [locks, setLocks] = useState<LockGroup[]>(["load"]);
@@ -185,8 +194,12 @@ export function AIAssistant({
     if (!text || busy) return;
     setBusy(true);
     setError("");
+    setErrorDiagnostic(null);
     setReply(null);
     setBase(snapshot);
+    const controller = new AbortController();
+    pendingRequest.current = controller;
+    const timer = window.setTimeout(() => controller.abort(), 65000);
     try {
       const x = await request("/ai/assist", {
         design: snapshot,
@@ -195,7 +208,7 @@ export function AIAssistant({
         message: text,
         locks,
         history: history.slice(-8),
-      });
+      }, controller.signal);
       if (epoch !== identityEpoch.current) return;
       setReply(x);
       setHistory((h) => [
@@ -205,8 +218,15 @@ export function AIAssistant({
       ]);
       setMessage("");
     } catch (e) {
-      setError(errorText(e, zh));
+      if (epoch === identityEpoch.current) {
+        setError(e instanceof DOMException && e.name === "AbortError"
+          ? bi("请求已取消或超时，设计未改变。", "Request canceled or timed out. Design unchanged.")
+          : errorText(e, zh));
+        setErrorDiagnostic(e instanceof AssistantRequestError ? e.diagnostic : null);
+      }
     } finally {
+      window.clearTimeout(timer);
+      if (pendingRequest.current === controller) pendingRequest.current = null;
       setBusy(false);
     }
   };
@@ -214,7 +234,7 @@ export function AIAssistant({
   return (
     <Dialog
       title={bi("AI 设计助手", "AI design assistant")}
-      onClose={onClose}
+      onClose={() => { pendingRequest.current?.abort(); onClose(); }}
       variant="drawer"
     >
       <div className="ai-assistant">
@@ -274,14 +294,14 @@ export function AIAssistant({
           <summary>
             {bi("哪些参数不让 AI 改", "Parameters AI must keep")}
           </summary>
-          <p>{bi("勾选后，AI 必须保留这组参数；未勾选的可以提出调整建议。锁定不会阻止你手动修改。", "Checked groups must stay unchanged in AI proposals. You can still edit them manually.")}</p>
+          <p>{bi("勾选后，AI 必须保留这组参数；未勾选的可以提出调整建议。设备耗电目前只能手动修改。", "Checked groups must stay unchanged in AI proposals. Device load can currently be edited manually only.")}</p>
           <div className="ai-locks">
             {lockGroups.map((g) => (
               <label key={g}>
                 <input
                   type="checkbox"
                   checked={locks.includes(g)}
-                  disabled={busy}
+                  disabled={busy || g === "load"}
                   onChange={(e) => {
                     setLocks((l) =>
                       e.target.checked ? [...l, g] : l.filter((x) => x !== g),
@@ -343,11 +363,21 @@ export function AIAssistant({
               ? bi("正在分析与演算…", "Analyzing & calculating…")
               : bi("发送", "Send")}
           </button>
+          {busy && <button type="button" onClick={() => pendingRequest.current?.abort()}>
+            {bi("取消等待", "Cancel request")}
+          </button>}
         </form>
         {error && (
-          <p role="alert" className="notice">
-            {error}
-          </p>
+          <div role="alert" className="notice">
+            <p>{error}</p>
+            {errorDiagnostic && <details>
+              <summary>{bi("诊断详情", "Diagnostic details")}</summary>
+              <pre>{JSON.stringify(errorDiagnostic, null, 2)}</pre>
+              <button type="button" onClick={() => void navigator.clipboard.writeText(JSON.stringify(errorDiagnostic, null, 2))}>
+                {bi("复制诊断", "Copy diagnostics")}
+              </button>
+            </details>}
+          </div>
         )}
         {reply && (
           <div className="ai-proposal">

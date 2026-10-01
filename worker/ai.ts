@@ -10,6 +10,7 @@ import {
 } from "../src/shared/model";
 import {
   applyProposal,
+  canUseComponent,
   lockGroups,
   proposalSchema,
 } from "../src/shared/assistant";
@@ -667,7 +668,7 @@ export function registerAI(app: App) {
       official: !!r.official,
       verified: !!r.verified,
       parameters: JSON.parse(r.parameters_json),
-    }));
+    })).filter(canUseComponent);
     const { trace, ...currentResult } = calculate(data.design);
     const system = `You are PowerMatch's engineering design assistant. Reply in ${data.locale}.
       Return ONLY JSON matching this schema: ${JSON.stringify(z.toJSONSchema(proposalSchema))}.

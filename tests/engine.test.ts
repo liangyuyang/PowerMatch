@@ -59,6 +59,14 @@ describe("physical model", () => {
     d.path = "direct";
     expect(calculate(d).status).toBe("incompatible");
   });
+  it("does not let an LDO or direct wire claim MPPT or charging capability", () => {
+    const d = cloneDesign();
+    d.regulation.mppt = true;
+    expect(calculate(d).errors).toContain("mppt-requires-harvester");
+    d.regulation.mppt = false;
+    d.regulation.charger = true;
+    expect(calculate(d).errors).toContain("charger-requires-converter");
+  });
   it("matches capacitor constant-current discharge within one integration step", () => {
     const d = cloneDesign();
     d.mode = "battery";

@@ -93,6 +93,12 @@ export function calculate(input: Design): Result {
   const hasPV = d.mode !== "battery";
   const hasStorage = d.mode !== "pv";
   const cap = ["lic", "supercap"].includes(d.storage.kind);
+  if (d.regulation.mppt && d.path !== "converter")
+    out.errors.push("mppt-requires-harvester");
+  if (d.regulation.charger && d.path !== "converter")
+    out.errors.push("charger-requires-converter");
+  if (d.path === "ldo" && d.regulation.componentId === "tps7a02" && (d.regulation.mppt || d.regulation.charger))
+    out.errors.push("component-capability-mismatch");
   if (hasPV) {
     if (d.pv.densityUwCm2 === null) out.missing.push("pv-density");
     if (d.pv.voltage === null) out.missing.push("pv-voltage");

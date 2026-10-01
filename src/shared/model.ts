@@ -76,6 +76,16 @@ export const designSchema = z
     horizonDays: finite(1, 365).int(),
     margin: finite(0, 100),
     notes: z.string().max(5000),
+    parameterSources: z
+      .record(
+        z.string().max(100),
+        z.object({
+          kind: z.enum(["catalog", "measured", "assumption", "user", "unknown"]),
+          reference: z.string().max(1000).optional(),
+          detail: z.string().max(300).optional(),
+        }),
+      )
+      .optional(),
   })
   .superRefine((x, c) => {
     if (
@@ -113,6 +123,7 @@ export interface Component {
   description: string;
   parameters: Record<string, number | string | null>;
   verified: boolean;
+  adopted_spec?: string | null;
 }
 export const DEFAULT_DESIGN: Design = {
   name: "穿山甲Tiny · 光伏改型",
@@ -172,6 +183,21 @@ export const DEFAULT_DESIGN: Design = {
   margin: 20,
   notes:
     "MOT-U125: 11+ µA is an engineering estimate. Timing model: 13.2353 µA. 150 lux is a prior test observation, not a universal threshold. Internal IC and original LR41 ×2 wiring are unconfirmed. 演算假设 / Simulation assumptions: battery ESR 20 ohm; regulator dropout 0.1 V; conversion/harvest efficiency 80%; non-MPPT utilization 70%. Validate at actual operating conditions. PowerFilm 200 lux power density uses module footprint, not active cell area.",
+  parameterSources: {
+    "pv.areaCm2": { kind: "catalog", reference: "powerfilm-ll200-24-75" },
+    "pv.referenceLux": { kind: "catalog", reference: "powerfilm-ll200-24-75" },
+    "pv.densityUwCm2": { kind: "catalog", reference: "powerfilm-ll200-24-75" },
+    "pv.voltage": { kind: "catalog", reference: "powerfilm-ll200-24-75" },
+    "storage.capacityMah": { kind: "catalog", reference: "panasonic-cr2032" },
+    "storage.minVoltage": { kind: "catalog", reference: "panasonic-cr2032" },
+    "storage.voltage": { kind: "catalog", reference: "panasonic-cr2032" },
+    "storage.esr": { kind: "assumption", detail: "20 Ω simulation input" },
+    "regulation.iqUa": { kind: "catalog", reference: "tps7a02" },
+    "regulation.dropout": { kind: "assumption" },
+    "regulation.efficiency": { kind: "assumption" },
+    "regulation.harvestEfficiency": { kind: "assumption" },
+    "pv.utilization": { kind: "assumption" },
+  },
 };
 export function cloneDesign(d: Design = DEFAULT_DESIGN): Design {
   return structuredClone(d);
@@ -241,6 +267,12 @@ export function changeStorage(
       next.path = "converter";
     }
   }
+  next.parameterSources = { ...next.parameterSources };
+  for (const key of Object.keys(next.storage))
+    next.parameterSources[`storage.${key}`] = { kind: "assumption", detail: "Ready-to-edit simulation template" };
+  if (kind !== "primary")
+    for (const key of Object.keys(next.regulation))
+      next.parameterSources[`regulation.${key}`] = { kind: "assumption", detail: "Functional harvesting template, not a verified IC" };
   return next;
 }
 
@@ -250,6 +282,13 @@ export function changeMode(d: Design, mode: Design["mode"]): Design {
   if (mode === "hybrid") return changeStorage(n, "lic");
   n.path = "ldo";
   n.regulation = cloneDesign().regulation;
-  if (mode === "battery") n.storage = cloneDesign().storage;
+  n.parameterSources = { ...n.parameterSources };
+  for (const key of Object.keys(n.regulation))
+    n.parameterSources[`regulation.${key}`] = cloneDesign().parameterSources?.[`regulation.${key}`] ?? { kind: "assumption" };
+  if (mode === "battery") {
+    n.storage = cloneDesign().storage;
+    for (const key of Object.keys(n.storage))
+      n.parameterSources[`storage.${key}`] = cloneDesign().parameterSources?.[`storage.${key}`] ?? { kind: "assumption" };
+  }
   return n;
 }

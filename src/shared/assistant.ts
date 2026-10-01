@@ -1,11 +1,17 @@
 import { z } from "zod";
 import {
   cloneDesign,
-  changeStorage,
   designSchema,
   type Design,
   type Component,
 } from "./model";
+
+export const DESIGN_COMPONENT_CATEGORIES = new Set([
+  "battery", "lic", "supercapacitor", "supercap", "rechargeable", "pv", "ldo", "pmic",
+]);
+export function canUseComponent(c: Component) {
+  return DESIGN_COMPONENT_CATEGORIES.has(c.category);
+}
 
 export const lockGroups = [
   "load",
@@ -52,10 +58,19 @@ export type Proposal = z.infer<typeof proposalSchema>;
 
 // Missing catalog facts remain unchanged in the catalog; the design gets labeled simulation assumptions.
 export function selectComponent(input: Design, c: Component): Design {
+  if (!canUseComponent(c)) throw new Error("component-category-unsupported");
   const n = cloneDesign(input),
     p = c.parameters;
+  const reference = c.adopted_spec ? `spec:${c.adopted_spec}` : c.source || c.id;
   const num = (key: string) =>
     typeof p[key] === "number" ? (p[key] as number) : null;
+  n.parameterSources = { ...n.parameterSources };
+  const source = (group: "storage" | "pv" | "regulation", key: string, parameter = key) => {
+    const known = num(parameter) !== null || ["mppt", "charger"].includes(parameter) && ["yes", "no"].includes(String(p[parameter]).toLowerCase());
+    n.parameterSources![`${group}.${key}`] = known
+      ? { kind: c.verified ? "catalog" : "assumption", reference, detail: c.verified ? undefined : "Catalog entry is unverified or illustrative" }
+      : { kind: "unknown", reference, detail: "This component has no confirmed value" };
+  };
   if (
     ["battery", "lic", "supercapacitor", "supercap", "rechargeable"].includes(
       c.category,
@@ -79,12 +94,19 @@ export function selectComponent(input: Design, c: Component): Design {
       capacityMah: num("capacityMah"),
       farads: num("farads"),
       minVoltage: num("minVoltage"),
-      maxVoltage: num("maxVoltage") ?? num("voltage"),
+      maxVoltage: num("maxVoltage"),
       leakUa: num("leakUa"),
       esr: num("esr"),
     };
     // Primary-cell self discharge is not modeled by the existing engine.
-    if (kind === "primary") n.storage.leakUa = 0;
+    if (kind === "primary") {
+      n.storage.leakUa = 0;
+      n.parameterSources["storage.leakUa"] = { kind: "assumption", detail: "Primary self-discharge is not modeled" };
+    }
+    for (const key of ["voltage", "capacityMah", "farads", "minVoltage", "maxVoltage", "leakUa", "esr"])
+      if (!(kind === "primary" && key === "leakUa")) source("storage", key);
+    for (const key of ["series", "parallel"])
+      n.parameterSources[`storage.${key}`] = { kind: "assumption", detail: "Single-cell starter arrangement" };
   } else if (c.category === "pv") {
     n.pv = {
       ...n.pv,
@@ -94,6 +116,8 @@ export function selectComponent(input: Design, c: Component): Design {
       referenceLux: num("referenceLux") ?? n.pv.referenceLux,
       areaCm2: num("areaCm2") ?? n.pv.areaCm2,
     };
+    for (const key of ["densityUwCm2", "voltage", "referenceLux", "areaCm2"])
+      if (num(key) !== null || ["densityUwCm2", "voltage"].includes(key)) source("pv", key);
   } else if (["ldo", "pmic"].includes(c.category)) {
     n.path = c.category === "ldo" ? "ldo" : "converter";
     n.regulation = {
@@ -104,17 +128,22 @@ export function selectComponent(input: Design, c: Component): Design {
       charger: String(p.charger).toLowerCase() === "yes",
       dropout: num("dropout") ?? n.regulation.dropout,
       efficiency: num("efficiency") ?? n.regulation.efficiency,
-      harvestEfficiency:
-        num("harvestEfficiency") ?? n.regulation.harvestEfficiency,
+      harvestEfficiency: num("harvestEfficiency") ?? n.regulation.harvestEfficiency,
     };
-  } else throw new Error("component-category-unsupported");
-  const fallback = c.category === "pv" ? cloneDesign().pv : ["ldo","pmic"].includes(c.category) ? {...cloneDesign().regulation, iqUa: c.category === "pmic" ? 0.5 : 0.025} : changeStorage(cloneDesign(),n.storage.kind).storage;
-  const group = c.category === "pv" ? "pv" : ["ldo","pmic"].includes(c.category) ? "regulation" : "storage";
-  const assumed:string[]=[];
-  for(const [key,value] of Object.entries(fallback)) {
-    if ((n[group] as any)[key] === null && value !== null) { (n[group] as any)[key]=value; assumed.push(`${group}.${key}=${value}`); }
+    for (const key of ["iqUa", "mppt", "charger", "dropout", "efficiency", "harvestEfficiency"])
+      if (p[key] !== undefined && p[key] !== null) source("regulation", key);
+      else n.parameterSources[`regulation.${key}`] = {
+        kind: key === "iqUa" || key === "mppt" || key === "charger" ? "unknown" : "assumption",
+        reference,
+        detail: key === "iqUa" ? "Enter the selected IC's quiescent current" : "Existing simulation input, not this part's specification",
+      };
   }
-  if(assumed.length) n.notes = (n.notes + `\n演算假设 / Simulation assumptions for ${c.id} (not manufacturer specs): ${assumed.join(", ")}`).slice(-5000);
+  const group = c.category === "pv" ? "pv" : ["ldo", "pmic"].includes(c.category) ? "regulation" : "storage";
+  const unknown = Object.entries(n.parameterSources)
+    .filter(([path, info]) => path.startsWith(`${group}.`) && info.kind === "unknown" && info.reference === reference)
+    .map(([path]) => path);
+  if (unknown.length)
+    n.notes = (n.notes + `\n${c.id}: 待补型号参数 / Missing part parameters: ${unknown.join(", ")}. No values borrowed from another component.`).slice(-5000);
   return n;
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { applyProposal, selectComponent } from "../src/shared/assistant";
+import { applyProposal, canUseComponent, selectComponent } from "../src/shared/assistant";
 import { cloneDesign } from "../src/shared/model";
 import { CATALOG } from "../src/shared/catalog";
 import { calculate } from "../src/shared/engine";
@@ -63,7 +63,7 @@ describe("AI design boundary", () => {
       ),
     ).toThrow("locked-parameters");
   });
-  it("replaces missing specifications with labeled assumptions, not the previous part values", () => {
+  it("leaves missing model specifications unknown instead of borrowing other parts", () => {
     const d = cloneDesign();
     d.pv.densityUwCm2 = 30;
     d.pv.voltage = 3;
@@ -73,8 +73,26 @@ describe("AI design boundary", () => {
     );
     expect(next.pv.densityUwCm2).not.toBe(30);
     expect(next.pv.voltage).not.toBe(3);
-    expect(next.notes).toContain("Simulation assumptions for epishine-leh3");
-    expect(calculate(next).missing).not.toContain("pv-density");
+    expect(next.pv.densityUwCm2).toBeNull();
+    expect(next.pv.voltage).toBeNull();
+    expect(next.parameterSources?.["pv.densityUwCm2"]?.kind).toBe("unknown");
+    expect(next.notes).toContain("Missing part parameters");
+    expect(calculate(next).missing).toContain("pv-density");
+  });
+  it("keeps an alkaline cell's unknown capacity and cutoff unknown", () => {
+    const next = selectComponent(cloneDesign(), CATALOG.find((x) => x.id === "energizer-a76")!);
+    expect(next.storage.voltage).toBe(1.5);
+    expect(next.storage.capacityMah).toBeNull();
+    expect(next.storage.minVoltage).toBeNull();
+    expect(next.storage.esr).toBeNull();
+    expect(next.parameterSources?.["storage.capacityMah"]?.kind).toBe("unknown");
+    expect(calculate({ ...next, mode: "battery" }).status).toBe("incomplete");
+  });
+  it("separates reference-only parts from selectable energy-path parts", () => {
+    for (const part of CATALOG) {
+      if (canUseComponent(part)) expect(() => selectComponent(cloneDesign(), part)).not.toThrow();
+      else expect(() => selectComponent(cloneDesign(), part)).toThrow("component-category-unsupported");
+    }
   });
   it("rejects invalid schedules and dangerous nested fields", () => {
     expect(() =>

@@ -1,6 +1,5 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 :root {
-  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
   color: #24324a;
   background: #f5f7fb;
   font-size: 14px;
@@ -237,6 +236,32 @@ main {
   gap: 18px;
   align-items: start;
 }
+.mobile-summary {
+  display: none;
+}
+.result-conclusion {
+  padding: 12px 14px;
+  border-left: 3px solid #2f67b5;
+  background: #f1f6fc;
+  line-height: 1.55;
+}
+.recovery {
+  max-width: 640px;
+  margin: 8vh auto;
+}
+.parameter-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.parameter-table th,
+.parameter-table td {
+  padding: 9px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+.parameter-table th { color: #334761; }
 .panel {
   border: 1px solid #e0e6ef;
   border-radius: 10px;
@@ -505,7 +530,7 @@ button.ai-launch:hover {
   min-width: 0;
 }
 .flow-arrow {
-  animation: energy-drift 4s ease-in-out infinite;
+  animation: energy-drift 5s ease-in-out infinite;
 }
 @keyframes energy-drift {
   0%,
@@ -524,6 +549,19 @@ button.ai-launch:hover {
   }
 }
 @media (max-width: 700px) {
+  .mobile-summary {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0 0 14px;
+    font-size: 14px;
+  }
+  .mobile-summary > div {
+    display: grid;
+    gap: 4px;
+    flex-basis: 100%;
+  }
   .angle-field {
     grid-column: 1/-1;
   }
@@ -938,7 +976,7 @@ summary {
     order: 2;
   }
   .results {
-    order: 0;
+    order: 3;
   }
   .results .findings {
     display: block;
@@ -986,17 +1024,6 @@ summary {
   footer {
     padding: 20px 12px;
     flex-wrap: wrap;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .flow-arrow {
-    animation: flow 2s ease-in-out infinite;
-  }
-  @keyframes flow {
-    50% {
-      opacity: 0.35;
-      transform: translateX(2px);
-    }
   }
 }
 @media print {
