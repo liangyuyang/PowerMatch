@@ -1,6 +1,8 @@
 # PowerMatch · ZenMeasure
 
-## Implementation status · 0.1.0
+## Implementation status
+
+Current production version and verification evidence are recorded in [HANDOFF.md](HANDOFF.md). The audit plan is being delivered in stages; implemented features below are not a claim that every planned feature is complete.
 
 React/TypeScript frontend + Cloudflare Worker, D1 and R2. Resend is the selected transactional email provider. The initial implementation includes a workbench, side-by-side comparison, conditional runtime model, source-linked component catalog, public Tiny example, scoped case revisions, Magic Link endpoints, spec review, discussion and admin screens.
 
@@ -26,7 +28,10 @@ Email sender is `PowerMatch <support@zenmeasure.com>`. Set the dedicated Worker 
 - Tiny's timing model is **13.2353 µA**. The team's “11+ µA” observation remains separate. MHO-C404's brochure does not provide a load profile.
 - Batteries currently use a nominal-voltage/capacity model; PV uses user-provided reference density and approximate lux/angle scaling. Capacitors use 60-second energy integration with a separate peak check. Results are conditional; an unexhausted simulation reports a lower bound, not infinite life.
 - LIC defaults to a generic 1 F template, not an invented manufacturer part. Missing parameters remain explicit. Imported text-PDF values are candidates requiring human review.
-- Seven-language primary labels and navigation are available with browser/manual preference. Detailed explanations currently use Chinese/English fallback; full technical localization remains open.
+- Seven-language navigation, structured component fields, popovers and chart captions are available with browser/manual preference. Some engineering explanations still use Chinese/English fallback; full technical localization remains open. Source names and original datasheet prose remain unchanged.
+- Component parameters can be edited as labeled fields with units, with JSON retained for advanced keys. Unknown values stay blank; display rounding does not change the stored input precision.
+- Page URLs support back/forward navigation. Saved cases and individual revisions have permission-checked share links; opening a link asks before replacing a draft. Editing a comparison snapshot creates an independent case.
+- Case lists support cursor pagination; the library progressively renders cards and revalidates the public catalog with ETags. Private/company/session responses remain `no-store`. Content-hashed bundles alone use immutable caching.
 - Branded report uses browser **Print / Save as PDF**. Energy path is a block diagram. Pin-level schematics/KiCad export, scanned-spec OCR, persistent comparison collections, detailed display waveforms, temperature/discharge curves and adaptive BLE policies remain planned.
 - Admin mail retry is implemented; opt-out controls and a fully reviewed component/image library remain open. Production Magic Link sign-in and Admin entry were confirmed by the user on 2026-09-12; other authenticated flows remain to be accepted. See [HANDOFF.md](HANDOFF.md) for current delivery evidence.
 

@@ -1,13 +1,16 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import type { Component } from "./shared/model";
+import type { Component, Locale } from "./shared/model";
+import { uiText } from './ui-text';
 
 export function ComponentHover({
   component,
+  locale,
   summary,
   onDetails,
   children,
 }: {
   component: Component;
+  locale: Locale;
   summary: string;
   onDetails: (c: Component) => void;
   children: React.ReactNode;
@@ -62,7 +65,7 @@ export function ComponentHover({
       {children}
       <button
         className="component-info-trigger"
-        aria-label={`${component.name} · 信息`}
+        aria-label={`${component.name} · ${uiText(locale,'info')}`}
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(true)}
@@ -74,12 +77,12 @@ export function ComponentHover({
           className="component-popover"
           id={id}
           role="region"
-          aria-label={`${component.name} · 概况`}
+          aria-label={`${component.name} · ${uiText(locale,'overview')}`}
         >
           <button
             className="popover-close"
             onClick={dismiss}
-            aria-label="关闭元器件气泡"
+            aria-label={uiText(locale,'closeInfo')}
           >
             ×
           </button>
@@ -88,8 +91,8 @@ export function ComponentHover({
           <p>{summary}</p>
           <p>
             {component.verified
-              ? "规格来源已记录，运行结果仍需实测"
-              : "包含演算假设或待核实参数"}
+              ? uiText(locale,'sourceRecorded')
+              : uiText(locale,'assumptions')}
           </p>
           <a
             href={`#component=${encodeURIComponent(component.id)}`}
@@ -99,7 +102,7 @@ export function ComponentHover({
               onDetails(component);
             }}
           >
-            查看元器件详情 →
+            {uiText(locale,'componentDetails')} →
           </a>
         </div>
       )}

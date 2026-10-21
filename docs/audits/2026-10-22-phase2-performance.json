@@ -1,0 +1,446 @@
+{
+  "method": "Home PC, local Workers assets, Edge headless, three samples per cache/viewport; mobile viewport uses 4x CPU slowdown, not a physical phone. Before/after are descriptive samples, not statistically established improvement or field CWV. Timing covers initial load, four 30-day charts and a workbench change to 365 days; longSimulationPaintMs is not INP.",
+  "before": {
+    "environment": "Home PC / Edge headless / local Workers assets; CPU slowdown is not a physical phone",
+    "samples": [
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 0,
+        "cache": "cold",
+        "readyMs": 412,
+        "longSimulationPaintMs": 69,
+        "lcp": 396,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          68,
+          110
+        ],
+        "fcp": 396,
+        "scriptBytes": 249912
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 0,
+        "cache": "warm",
+        "readyMs": 195,
+        "longSimulationPaintMs": 42,
+        "lcp": 76,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          81,
+          153
+        ],
+        "fcp": 76,
+        "scriptBytes": 0
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 1,
+        "cache": "cold",
+        "readyMs": 300,
+        "longSimulationPaintMs": 58,
+        "lcp": 204,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          59,
+          106
+        ],
+        "fcp": 204,
+        "scriptBytes": 249912
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 1,
+        "cache": "warm",
+        "readyMs": 172,
+        "longSimulationPaintMs": 49,
+        "lcp": 60,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          51,
+          148
+        ],
+        "fcp": 60,
+        "scriptBytes": 0
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 2,
+        "cache": "cold",
+        "readyMs": 345,
+        "longSimulationPaintMs": 89,
+        "lcp": 220,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          82,
+          132
+        ],
+        "fcp": 220,
+        "scriptBytes": 249912
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 2,
+        "cache": "warm",
+        "readyMs": 207,
+        "longSimulationPaintMs": 42,
+        "lcp": 76,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          71,
+          159
+        ],
+        "fcp": 76,
+        "scriptBytes": 0
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 0,
+        "cache": "cold",
+        "readyMs": 1739,
+        "longSimulationPaintMs": 281,
+        "lcp": 988,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          213,
+          146,
+          374,
+          628,
+          233,
+          158
+        ],
+        "fcp": 988,
+        "scriptBytes": 249912
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 0,
+        "cache": "warm",
+        "readyMs": 955,
+        "longSimulationPaintMs": 200,
+        "lcp": 304,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          65,
+          342,
+          1116,
+          277,
+          122,
+          77
+        ],
+        "fcp": 304,
+        "scriptBytes": 0
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 1,
+        "cache": "cold",
+        "readyMs": 2338,
+        "longSimulationPaintMs": 389,
+        "lcp": 1304,
+        "cls": 0.03760575004956607,
+        "longTasks": [
+          219,
+          226,
+          51,
+          411,
+          864,
+          369,
+          228
+        ],
+        "fcp": 1304,
+        "scriptBytes": 249912
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 1,
+        "cache": "warm",
+        "readyMs": 1183,
+        "longSimulationPaintMs": 211,
+        "lcp": 364,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          82,
+          426,
+          990,
+          232,
+          107,
+          82
+        ],
+        "fcp": 364,
+        "scriptBytes": 0
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 2,
+        "cache": "cold",
+        "readyMs": 1937,
+        "longSimulationPaintMs": 315,
+        "lcp": 1072,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          163,
+          141,
+          430,
+          871,
+          266,
+          165
+        ],
+        "fcp": 1072,
+        "scriptBytes": 249912
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 2,
+        "cache": "warm",
+        "readyMs": 974,
+        "longSimulationPaintMs": 281,
+        "lcp": 288,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          55,
+          358,
+          783,
+          236,
+          69,
+          103
+        ],
+        "fcp": 288,
+        "scriptBytes": 0
+      }
+    ]
+  },
+  "after": {
+    "environment": "Home PC / Edge headless / local Workers assets; CPU slowdown is not a physical phone",
+    "samples": [
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 0,
+        "cache": "cold",
+        "readyMs": 378,
+        "longSimulationPaintMs": 67,
+        "lcp": 364,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          70,
+          115
+        ],
+        "fcp": 364,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 0,
+        "cache": "warm",
+        "readyMs": 152,
+        "longSimulationPaintMs": 58,
+        "lcp": 80,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          57,
+          200
+        ],
+        "fcp": 80,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 1,
+        "cache": "cold",
+        "readyMs": 330,
+        "longSimulationPaintMs": 64,
+        "lcp": 232,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          60,
+          127
+        ],
+        "fcp": 232,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 1,
+        "cache": "warm",
+        "readyMs": 169,
+        "longSimulationPaintMs": 52,
+        "lcp": 76,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          66,
+          170
+        ],
+        "fcp": 76,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 2,
+        "cache": "cold",
+        "readyMs": 368,
+        "longSimulationPaintMs": 86,
+        "lcp": 244,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          82,
+          128
+        ],
+        "fcp": 244,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": false,
+        "cpuSlowdown": 1,
+        "repeat": 2,
+        "cache": "warm",
+        "readyMs": 157,
+        "longSimulationPaintMs": 57,
+        "lcp": 76,
+        "cls": 0.03388031408454586,
+        "longTasks": [
+          56,
+          168
+        ],
+        "fcp": 76,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 0,
+        "cache": "cold",
+        "readyMs": 1782,
+        "longSimulationPaintMs": 400,
+        "lcp": 996,
+        "cls": 0.03760575004956607,
+        "longTasks": [
+          147,
+          186,
+          463,
+          712,
+          235,
+          219
+        ],
+        "fcp": 996,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 0,
+        "cache": "warm",
+        "readyMs": 1020,
+        "longSimulationPaintMs": 332,
+        "lcp": 284,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          70,
+          410,
+          1037,
+          295,
+          106,
+          139
+        ],
+        "fcp": 284,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 1,
+        "cache": "cold",
+        "readyMs": 1722,
+        "longSimulationPaintMs": 310,
+        "lcp": 940,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          131,
+          141,
+          437,
+          623,
+          229,
+          180
+        ],
+        "fcp": 940,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 1,
+        "cache": "warm",
+        "readyMs": 1045,
+        "longSimulationPaintMs": 188,
+        "lcp": 316,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          75,
+          417,
+          968,
+          245,
+          87,
+          83
+        ],
+        "fcp": 316,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 2,
+        "cache": "cold",
+        "readyMs": 1524,
+        "longSimulationPaintMs": 230,
+        "lcp": 816,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          119,
+          126,
+          407,
+          607,
+          212,
+          133
+        ],
+        "fcp": 816,
+        "scriptBytes": 257479
+      },
+      {
+        "mobile": true,
+        "cpuSlowdown": 4,
+        "repeat": 2,
+        "cache": "warm",
+        "readyMs": 1023,
+        "longSimulationPaintMs": 189,
+        "lcp": 272,
+        "cls": 0.037585664454695536,
+        "longTasks": [
+          69,
+          394,
+          931,
+          241,
+          118,
+          81
+        ],
+        "fcp": 272,
+        "scriptBytes": 257479
+      }
+    ]
+  }
+}

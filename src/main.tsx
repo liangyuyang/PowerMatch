@@ -47,28 +47,11 @@ import { canUseComponent, selectComponent } from "./shared/assistant";
 import { checkDraftAccess, defaultDraftScope, draftKey, readDraft, writeDraft, type DraftAccess, type DraftCaseContext } from "./shared/draft";
 import { ComponentHover } from "./component-hover";
 import { NumericInput } from "./numeric-input";
-
-class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
-}
-async function api(path: string, data?: unknown, method?: string, expectedActor?: string) {
-  const response = await fetch("/api" + path, {
-    method: method ?? (data ? "POST" : "GET"),
-    headers: {
-      ...(data instanceof FormData
-        ? {}
-        : data
-          ? { "Content-Type": "application/json" }
-          : {}),
-      ...(expectedActor ? { "X-PowerMatch-Actor": expectedActor } : {}),
-    },
-    body:
-      data instanceof FormData ? data : data ? JSON.stringify(data) : undefined,
-  });
-  const result: any = await response.json();
-  if (!response.ok) throw new ApiError(result.error ?? `HTTP ${response.status}`, response.status);
-  return result;
-}
+import { api, ApiError } from "./api";
+import { ComponentParameters } from "./component-parameters";
+import { parseParameters, parameterDisplay } from "./shared/component-parameters";
+import { readPage, pageUrl, caseUrl, type Page } from "./shared/navigation";
+import { uiText, parameterLabel } from "./ui-text";
 const fmt = (n: number, d = 2) => Number(n.toFixed(d)).toString();
 const currentText = (ua: number | null | undefined) =>
   ua == null ? "—" : Math.abs(ua) < 1 && ua !== 0 ? `${fmt(ua * 1000)} nA` : `${fmt(ua)} µA`;
@@ -177,7 +160,7 @@ function ModalShell({
     <div
       className={variant === "drawer" ? "backdrop drawer-backdrop" : "backdrop"}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) { e.preventDefault(); onClose(); }
       }}
     >
       <div
@@ -215,7 +198,7 @@ function App() {
   );
   const tr = (key: Word) => t(locale, key);
   const bi = (zh: string, en: string) => (locale === "zh" ? zh : en);
-  const [page, setPage] = useState<Word>("workbench"),
+  const [page, setPageState] = useState<Page>(() => readPage(new URL(location.href))),
     [d, setD] = useState<Design>(cloneDesign),
     [viewer, setViewer] = useState<Viewer | null>(null),
     [emailReady, setEmailReady] = useState(false),
@@ -269,6 +252,38 @@ function App() {
     [partCategory, setPartCategory] = useState("battery"),
     [partSource, setPartSource] = useState("");
   const resultCache = useRef(new Map<string, Result | null>());
+  const [caseCursor,setCaseCursor] = useState<string|null>(null);
+  const [partParams,setPartParams]=useState('{}');
+  const pendingOps=useRef(0);
+  const [casesLoading,setCasesLoading] = useState(false);
+  const [casesError,setCasesError] = useState("");
+  const [caseReload,setCaseReload] = useState(0);
+  const [libraryLimit,setLibraryLimit] = useState(24);
+  const [linkedCase,setLinkedCase] = useState(() => {
+    const url=new URL(location.href);
+    return url.searchParams.get('case') ? {id:url.searchParams.get('case')!,revision:url.searchParams.get('revision')??undefined} : null;
+  });
+  const listRequest=useRef(0);
+  const specsRequest=useRef(0);
+  const specsAbort=useRef<AbortController|null>(null);
+  const [specsLoading,setSpecsLoading] = useState(false);
+  const setPage=(next:Page)=>{
+    const url=pageUrl(new URL(location.href),next);
+    if(url!==location.pathname+location.search+location.hash) history.pushState({},'',url);
+    setPageState(next);
+    setLinkedCase(null);
+  };
+  useEffect(()=>{
+    const back=()=>{
+      const url=new URL(location.href);
+      setPageState(readPage(url));
+      setModal(null);setPicker(null);setAiOpen(false);
+      setLinkedCase(url.searchParams.get('case')?{id:url.searchParams.get('case')!,revision:url.searchParams.get('revision')??undefined}:null);
+    };
+    window.addEventListener('popstate',back);
+    return ()=>window.removeEventListener('popstate',back);
+  },[]);
+  useEffect(()=>setLibraryLimit(24),[search]);
   const identity = viewer?.id ?? "guest";
   const identityRef = useRef(identity);
   identityRef.current = identity;
@@ -294,14 +309,20 @@ function App() {
   const valid = designSchema.safeParse(d);
   const result = calculateCached(d);
   const run = async (fn: () => Promise<void>) => {
+    ++pendingOps.current;
     setBusy(true);
     setNotice("");
     try {
       await fn();
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e));
+      if(e instanceof DOMException && e.name === 'AbortError') return;
+      setNotice(e instanceof ApiError && e.message === 'request-timeout'
+        ? bi('请求超时，请重试。','Request timed out. Please retry.')
+        : e instanceof ApiError && e.message === 'request-timeout-outcome-unknown'
+          ? bi('等待超时，服务端可能已完成操作。请先刷新核实，避免重复提交。','Waiting timed out; the server may have completed the operation. Refresh to verify before submitting again.')
+          : e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusy(--pendingOps.current > 0);
     }
   };
   const checkCase = async (context: DraftCaseContext, owner: string, epoch: number, request: number) => {
@@ -426,6 +447,9 @@ function App() {
     setRecipient("");
     setTarget({ type: "application", target: "general" });
     setAdmin(null);
+    setPartParams('{}');setPartName('');setPartMaker('');setPartSource('');
+    setSelected(null);setParams('{}');setReviewNote('');setCandidates([]);setUploadFile(null);setSpecs([]);
+    ++specsRequest.current;specsAbort.current?.abort();
     if (saved) {
       setD(saved.design);
       setSnapshots(saved.snapshots);
@@ -469,21 +493,42 @@ function App() {
       .catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
   }, [sessionReady, viewer?.id]);
   useEffect(() => {
+    const controller=new AbortController();
     let active = true;
     const owner = identity;
     const epoch = identityEpoch.current;
     const applies = () => active && identityRef.current === owner && identityEpoch.current === epoch;
-    if (page === "hall")
-      run(async () => { const response = await api("/cases?scope=" + hallScope); if (applies()) setCases(response.cases); });
-    if (page === "forum")
+    if (page === "hall") {
+      const request=++listRequest.current;
+      setCases([]);setCaseCursor(null);setCasesLoading(true);setCasesError('');
+      api(`/cases?scope=${hallScope}&limit=24`,undefined,undefined,undefined,{signal:controller.signal})
+        .then(response=>{if(applies()&&request===listRequest.current){setCases(response.cases);setCaseCursor(response.nextCursor??null);}})
+        .catch(error=>{if(applies())setCasesError(error instanceof Error?error.message:String(error));})
+        .finally(()=>{if(applies())setCasesLoading(false);});
+    }
+    if (page === "forum") {
+      setPosts([]);
       run(async () => {
-        const response = await api(`/posts?type=${target.type}&target=${encodeURIComponent(target.target)}`);
+        const response = await api(`/posts?type=${target.type}&target=${encodeURIComponent(target.target)}`,undefined,undefined,undefined,{signal:controller.signal});
         if (applies()) setPosts(response.posts);
       });
+    }
     if (page === "admin" && viewer?.admin)
-      run(async () => { const response = await api("/admin"); if (applies()) setAdmin(response); });
-    return () => { active = false; };
-  }, [page, hallScope, target, viewer?.id, viewer?.admin]);
+      run(async () => { const response = await api("/admin",undefined,undefined,undefined,{signal:controller.signal}); if (applies()) setAdmin(response); });
+    return () => { active = false; controller.abort(); ++listRequest.current; };
+  }, [page, hallScope, target, viewer?.id, viewer?.admin, caseReload]);
+  const moreCases=async()=>{
+    if(!caseCursor||casesLoading)return;
+    const request=++listRequest.current,owner=identity,epoch=identityEpoch.current;
+    setCasesLoading(true);setCasesError('');
+    try {
+      const response=await api(`/cases?scope=${hallScope}&limit=24&cursor=${encodeURIComponent(caseCursor)}`);
+      if(request!==listRequest.current||owner!==identityRef.current||epoch!==identityEpoch.current)return;
+      setCases(old=>[...old,...response.cases.filter((row:CaseItem)=>!old.some(item=>item.id===row.id))]);
+      setCaseCursor(response.nextCursor??null);
+    } catch(error) {if(request===listRequest.current)setCasesError(error instanceof Error?error.message:String(error));}
+    finally {if(request===listRequest.current)setCasesLoading(false);}
+  };
   const update = (group: keyof Design, key: string, value: unknown) => {
     setUndoPreset(null);
     setD((old) => ({
@@ -601,21 +646,23 @@ function App() {
   };
   const componentLabel = (id: string) =>
     components.find((part) => part.id === id)?.name ?? CATALOG.find((part) => part.id === id)?.name ?? id;
-  const openCase = async (id: string, duplicate = false) =>
+  const openCase = async (id: string, duplicate = false, revision?:string) =>
     run(async () => {
       if (!sessionReady || authPending) return;
       const owner = identity;
       const epoch = identityEpoch.current;
       const request = ++caseRequest.current;
-      const x = await api("/cases/" + id);
+      const x = await api("/cases/" + encodeURIComponent(id));
       if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return;
       if (!x.revisions.length) throw new Error(bi("没有可读取的修订。", "No readable revision is available."));
-      setD(x.revisions[0].design);
+      const chosen = revision ? x.revisions.find((r:Revision)=>r.id===revision) : x.revisions[0];
+      if(!chosen) throw new Error(bi('该修订不存在或无权查看。','Revision unavailable or access denied.'));
+      setD(chosen.design);
       setUndoPreset(null);
       setCurrent({
         id,
         revision: x.case.latest_revision,
-        parent: x.revisions[0].id,
+        parent: chosen.id,
         canEdit: !!x.case.canEdit && !duplicate,
         originalScope: x.case.scope,
       });
@@ -632,14 +679,19 @@ function App() {
         );
     });
   const showComponent = async (c: Component) => {
+    const request=++specsRequest.current;
+    specsAbort.current?.abort();
+    const controller=new AbortController();specsAbort.current=controller;
     setSelected(c);
-    setParams(JSON.stringify(c.parameters, null, 2));
-    setReviewNote("");
-    setCandidates([]);
+    if(selected?.id!==c.id) setParams(JSON.stringify(c.parameters, null, 2));
+    if(selected?.id!==c.id) {setReviewNote("");setCandidates([]);setUploadFile(null);}
+    setSpecs([]);setSpecsLoading(true);
     setModal("component");
-    run(async () =>
-      setSpecs((await api("/components/" + c.id + "/specs")).specs),
-    );
+    try {
+      const response=await api("/components/"+encodeURIComponent(c.id)+"/specs",undefined,undefined,undefined,{signal:controller.signal});
+      if(request===specsRequest.current)setSpecs(response.specs);
+    } catch(error) {if(!controller.signal.aborted&&request===specsRequest.current)setNotice(error instanceof Error?error.message:String(error));}
+    finally {if(request===specsRequest.current)setSpecsLoading(false);}
   };
   useEffect(() => {
     const openLinked = () => {
@@ -653,7 +705,7 @@ function App() {
       const c =
         components.find((c) => c.id === id) ?? CATALOG.find((c) => c.id === id);
       if (c) {
-        setPage("library");
+        setPageState("library");
         void showComponent(c);
       }
     };
@@ -770,15 +822,16 @@ function App() {
             : `${d.device} · ${fmt(d.load.voltage)} V · ${fmt(result?.averageUa ?? 0)} µA`;
     return (
       <ComponentHover
+        locale={locale}
         component={c}
         summary={summary}
         onDetails={(c) => {
+          setPage("library");
           history.replaceState(
             null,
             "",
             `#component=${encodeURIComponent(c.id)}`,
           );
-          setPage("library");
           void showComponent(c);
         }}
       >
@@ -865,7 +918,7 @@ function App() {
           </span>
         </a>
         <nav>
-          {(["workbench", "compare", "library", "hall", "forum"] as Word[]).map(
+          {(["workbench", "compare", "library", "hall", "forum"] as Page[]).map(
             (key, i) => (
               <button
                 key={key}
@@ -1697,6 +1750,12 @@ function App() {
                 {current && (
                   <>
                     <button
+                        onClick={() => run(async()=>{
+                          await navigator.clipboard.writeText(caseUrl(new URL(location.href),current.id,current.parent));
+                          setNotice(uiText(locale,'linkCopied'));
+                        })}
+                      >{uiText(locale,'copyLink')}</button>
+                      <button
                       onClick={() => {
                         setTarget({ type: "case", target: current.id });
                         setPage("forum");
@@ -1846,11 +1905,16 @@ function App() {
                         <div className="toolbar">
                           <button
                             onClick={() => {
+                              ++caseRequest.current;
+                              setCurrent(null);setRevisions([]);setDraftAccess('ready');
+                              setScope(defaultDraftScope(viewer?.employee));
+                              setUndoPreset(null);setUndoAI(null);
                               setD(cloneDesign(design));
                               setPage("workbench");
+                              setNotice(uiText(locale,'copyHint'));
                             }}
                           >
-                            {tr("workbench")}
+                            {uiText(locale,'editCopy')}
                           </button>
                           <button
                             onClick={() =>
@@ -1923,7 +1987,10 @@ function App() {
                 </article>
               ))}
             </div>
-            {!cases.length && <p>{tr("empty")}</p>}
+            {casesLoading && <p role="status">{uiText(locale,'loading')}</p>}
+            {casesError && <p role="alert">{casesError} <button onClick={()=>caseCursor?void moreCases():setCaseReload(n=>n+1)}>{uiText(locale,'retry')}</button></p>}
+            {caseCursor && <button disabled={casesLoading} onClick={()=>void moreCases()}>{uiText(locale,'loadMore')}</button>}
+            {!cases.length && !casesLoading && !casesError && <p>{tr("empty")}</p>}
           </>
         )}
         {page === "library" && (
@@ -1931,7 +1998,6 @@ function App() {
             <button
               disabled={!viewer}
               onClick={() => {
-                setParams("{}");
                 setModal("newcomponent");
               }}
             >
@@ -1958,6 +2024,7 @@ function App() {
                     .toLowerCase()
                     .includes(search.toLowerCase()),
                 )
+                .slice(0,libraryLimit)
                 .map((c) => (
                   <article className="panel component-card" key={c.id}>
                     <div className="section-title">
@@ -1986,6 +2053,7 @@ function App() {
                   </article>
                 ))}
             </div>
+            {components.filter(c=>(c.name+c.manufacturer+c.category).toLowerCase().includes(search.toLowerCase())).length>libraryLimit && <button onClick={()=>setLibraryLimit(n=>n+24)}>{uiText(locale,'loadMore')}</button>}
           </>
         )}
         {page === "forum" && (
@@ -2302,6 +2370,17 @@ function App() {
           )}
         </ModalShell>
       )}
+      {linkedCase && sessionReady && draftOwner===identity && !modal && (
+        <ModalShell title={uiText(locale,'linkedCase')} onClose={()=>{
+          setLinkedCase(null);
+          const url=new URL(location.href);url.searchParams.delete('case');url.searchParams.delete('revision');
+          history.replaceState({},'',url.pathname+url.search+url.hash);
+        }}>
+          <p>{uiText(locale,'linkedHint')}</p>
+          <button className="primary" disabled={busy||authPending||sessionUnavailable} onClick={()=>void openCase(linkedCase.id,false,linkedCase.revision)}>{uiText(locale,'linkedCase')}</button>
+          {notice && <p role="status">{notice}</p>}
+        </ModalShell>
+      )}
       {modal && (
         <ModalShell
           title={tr(
@@ -2390,15 +2469,16 @@ function App() {
                     category: partCategory,
                     source: partSource,
                     description: "Community contribution; requires review.",
-                    parameters: JSON.parse(params),
+                    parameters: parseParameters(partParams),
                   });
                   setComponents((await api("/components")).components);
+                  setPartParams('{}');setPartName('');setPartMaker('');setPartCategory('battery');setPartSource('');
                   setModal(null);
                 });
               }}
             >
               <label className="field">
-                <span>{tr("name")}</span>
+                <span>{uiText(locale,'partName')}</span>
                 <input
                   required
                   value={partName}
@@ -2406,44 +2486,39 @@ function App() {
                 />
               </label>
               <label className="field">
-                <span>{bi("厂家", "Manufacturer")}</span>
+                <span>{uiText(locale,'manufacturer')}</span>
                 <input
                   value={partMaker}
                   onChange={(e) => setPartMaker(e.target.value)}
                 />
               </label>
               {select(
-                bi("类别", "Category"),
+                uiText(locale,'category'),
                 partCategory,
                 [
                   "battery",
                   "lic",
                   "supercap",
+                  "rechargeable",
                   "pv",
                   "ldo",
                   "pmic",
                   "display",
                   "passive",
-                ].map((s) => [s, s]),
+                ].map((s) => [s, parameterLabel(locale,s)]),
                 setPartCategory,
               )}
               <label className="field">
-                <span>Source URL</span>
+                <span>{uiText(locale,'sourceUrl')}</span>
                 <input
                   type="url"
                   value={partSource}
                   onChange={(e) => setPartSource(e.target.value)}
                 />
               </label>
-              <label className="field">
-                <span>Parameters JSON</span>
-                <textarea
-                  value={params}
-                  onChange={(e) => setParams(e.target.value)}
-                />
-              </label>
-              <button disabled={busy} className="primary">
-                {tr("save")}
+              <ComponentParameters category={partCategory} value={partParams} onChange={setPartParams} locale={locale}/>
+              <button disabled={busy || !parseParameters(partParams)} className="primary">
+                {uiText(locale,'saveComponent')}
               </button>
             </form>
           )}
@@ -2623,8 +2698,8 @@ function App() {
                 <tbody>
                   {Object.entries(selected.parameters).map(([key, value]) => (
                     <tr key={key}>
-                      <td>{({ voltage: "电压 V", minVoltage: "最低电压 V", maxVoltage: "最高电压 V", capacityMah: "容量 mAh", farads: "电容量 F", leakUa: "漏电流 µA", esr: "内阻 Ω", iqUa: "静态电流 µA", densityUwCm2: "功率密度 µW/cm²", referenceLux: "参考照度 lux", areaCm2: "面积 cm²", efficiency: "效率", mppt: "MPPT", charger: "充电管理" } as Record<string, string>)[key] ?? key}</td>
-                      <td>{value === null ? bi("待补", "Unknown") : String(value)}</td>
+                      <td>{parameterLabel(locale,key)}</td>
+                      <td>{value === null ? uiText(locale,'unknown') : parameterDisplay(key,value)}</td>
                       <td>{value === null ? bi("未提供", "Missing") : selected.verified ? bi("库内核验", "Reviewed") : bi("待核验", "Unverified")}</td>
                     </tr>
                   ))}
@@ -2690,15 +2765,9 @@ function App() {
                   </button>
                 </div>
               ))}
-              <details>
-                <summary>{bi("高级：审核候选参数 JSON", "Advanced: review candidate parameter JSON")}</summary>
-                <label className="field">
-                  <span>{bi("候选参数 JSON（需审核）", "Candidate parameters JSON (review required)")}</span>
-                  <textarea value={params} onChange={(e) => setParams(e.target.value)} />
-                </label>
-              </details>
+              <ComponentParameters category={selected.category} value={params} onChange={setParams} locale={locale}/>
               <button
-                disabled={!viewer || !uploadFile || busy}
+                disabled={!viewer || !uploadFile || busy || !parseParameters(params)}
                 onClick={() =>
                   run(async () => {
                     const f = new FormData();
@@ -2715,6 +2784,7 @@ function App() {
               >
                 {tr("upload")}
               </button>
+              {specsLoading && <p role="status">{uiText(locale,'loading')}</p>}
               {specs.map((s) => (
                 <article className="post" key={s.id}>
                   <a href={"/api/specs/" + s.id + "/file"}>{s.filename}</a>
@@ -2733,7 +2803,7 @@ function App() {
                         onChange={(e) => setReviewNote(e.target.value)}
                       />
                       <button
-                        disabled={!reviewNote || busy}
+                        disabled={!reviewNote || busy || !parseParameters(params)}
                         onClick={() =>
                           run(async () => {
                             await api("/specs/" + s.id + "/review", {

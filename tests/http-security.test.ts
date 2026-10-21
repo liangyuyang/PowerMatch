@@ -110,6 +110,36 @@ afterEach(() => {
 });
 
 describe("API response security", () => {
+  it('paginates with stable ties and keeps private/company rows behind authorization',async()=>{
+    const employee=await signedIn('employee','zenmeasure.com');
+    await signedIn('other','zenmeasure.com');
+    for(let i=0;i<110;i++) sqlite.prepare("INSERT INTO cases(id,name,scope,official,updated_at) VALUES(?,?,'public',?,'2026-10-21 10:00:00')").run(`case-${String(i).padStart(3,'0')}`,`Case ${i}`,i<3?1:0);
+    sqlite.prepare("INSERT INTO cases(id,owner_id,name,scope) VALUES('private','employee','Private','private'),('other-private','other','Other private','private'),('company','other','Company','company')").run();
+    const ids:string[]=[];let cursor:string|null=null;
+    do {
+      const response=await request('/api/cases?limit=24'+(cursor?'&cursor='+encodeURIComponent(cursor):''));
+      const body=await response.json() as {cases:{id:string}[];nextCursor:string|null};
+      ids.push(...body.cases.map(row=>row.id));cursor=body.nextCursor;
+      expectProtected(response);
+    }while(cursor);
+    expect(ids).toHaveLength(110);expect(new Set(ids).size).toBe(110);
+    expect(ids.slice(0,3)).toEqual(['case-002','case-001','case-000']);
+    expect((await request('/api/cases?scope=company&limit=1')).status).toBe(403);
+    const mine=await request('/api/cases?scope=private&limit=1',{headers:employee});
+    expect((await mine.json() as any).cases.map((row:any)=>row.id)).toEqual(['private']);
+    for(const query of ['limit=101','limit=NaN','limit=0','cursor=bad','scope=invalid']) expect((await request('/api/cases?'+query)).status).toBe(400);
+  });
+  it('revalidates the public catalog without caching authenticated responses',async()=>{
+    const before=await request('/api/components');const etag=before.headers.get('ETag')!;
+    expect(etag).toMatch(/^"[a-f0-9]+"$/);
+    const same=await request('/api/components',{headers:{'If-None-Match':etag}});
+    expect(same.status).toBe(304);expect(await same.text()).toBe('');expectProtected(same);
+    sqlite.prepare("INSERT INTO components(id,name,category,manufacturer,parameters_json) VALUES('new','New','pv','Test','{}')").run();
+    const changed=await request('/api/components',{headers:{'If-None-Match':etag}});
+    expect(changed.status).toBe(200);expect(changed.headers.get('ETag')).not.toBe(etag);
+    const session=await request('/api/session',{headers:{'If-None-Match':etag}});
+    expect(session.status).toBe(200);expect(session.headers.get('ETag')).toBeNull();expectProtected(session);
+  });
   it("covers success, early origin/auth denial, not-found and validation errors", async () => {
     const cases = [
       [await request("/api/health"), 200],

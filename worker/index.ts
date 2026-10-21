@@ -1,6 +1,7 @@
 import { extractText } from "unpdf";
 import { extractCandidates } from "../src/shared/spec-parser";
 import { Hono } from "hono";
+import { decodeCaseCursor, encodeCaseCursor, type CaseCursor } from './case-pagination';
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import {
   boundedRequestBody,
@@ -353,6 +354,12 @@ app.post("/api/calculate", async (c) => {
 app.get("/api/cases", async (c) => {
   const user = c.get("user");
   const scope = c.req.query("scope") || "public";
+  if(!['public','company','private','mine'].includes(scope)) return jsonError('invalid-scope',400);
+  const rawLimit=c.req.query('limit');
+  const limit=rawLimit===undefined?100:Number(rawLimit);
+  if(!Number.isInteger(limit)||limit<1||limit>100) return jsonError('invalid-limit',400);
+  let cursor:CaseCursor|null;
+  try {cursor=decodeCaseCursor(c.req.query('cursor'));} catch {return jsonError('invalid-cursor',400);}
   if (scope === "company" && !user?.employee)
     return jsonError("employee-required", 403);
   if (scope === "private" && !user?.employee)
@@ -369,12 +376,14 @@ app.get("/api/cases", async (c) => {
       : scope === "private"
         ? [user!.id]
         : [scope];
+  const after=cursor?' AND (c.official < ? OR (c.official = ? AND (c.updated_at < ? OR (c.updated_at = ? AND c.id < ?))))':'';
   const rows = await c.env.DB.prepare(
-    `SELECT c.id,c.name,c.scope,c.latest_revision,c.official,c.updated_at,u.display_name AS author_name,u.id AS author_id FROM cases c LEFT JOIN users u ON c.owner_id=u.id WHERE c.deleted=0 AND ${where} ORDER BY c.official DESC,c.updated_at DESC LIMIT 100`,
+    `SELECT c.id,c.name,c.scope,c.latest_revision,c.official,c.updated_at,u.display_name AS author_name,u.id AS author_id FROM cases c LEFT JOIN users u ON c.owner_id=u.id WHERE c.deleted=0 AND (${where})${after} ORDER BY c.official DESC,c.updated_at DESC,c.id DESC LIMIT ?`,
   )
-    .bind(...values)
-    .all();
-  return c.json({ cases: rows.results });
+    .bind(...values,...(cursor?[cursor.official,cursor.official,cursor.updated_at,cursor.updated_at,cursor.id]:[]),limit+1)
+    .all<CaseCursor>();
+  const page=rows.results.slice(0,limit);
+  return c.json({ cases: page, nextCursor:rows.results.length>limit?encodeCaseCursor(page[page.length-1]):null });
 });
 app.get("/api/cases/:id", async (c) => {
   const row = await c.env.DB.prepare("SELECT * FROM cases WHERE id=?")
@@ -537,13 +546,17 @@ app.get("/api/components", async (c) => {
   const rows = await c.env.DB.prepare(
     "SELECT c.id,c.name,c.category,c.manufacturer,c.source,c.description,c.parameters_json,c.official,c.verified,c.adopted_spec,u.display_name AS author_name,u.id AS author_id FROM components c LEFT JOIN users u ON u.id=c.owner_id ORDER BY c.official DESC,c.category,c.name",
   ).all<{ parameters_json: string }>();
-  return c.json({
+  const body=JSON.stringify({
     components: rows.results.map((r) => ({
       ...r,
       parameters: JSON.parse(r.parameters_json),
       parameters_json: undefined,
     })),
   });
+  const etag=`"${await hash(body)}"`;
+  c.header('ETag',etag);
+  if(c.req.header('If-None-Match')===etag) return c.body(null,304);
+  return c.body(body,200,{'Content-Type':'application/json; charset=utf-8'});
 });
 app.post("/api/components", async (c) => {
   const user = c.get("user");

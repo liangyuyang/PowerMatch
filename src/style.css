@@ -1364,3 +1364,10 @@ summary {
     box-shadow: none;
   }
 }
+/* Structured specification fields remain readable at narrow widths. */
+.parameter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.component-parameters { margin: 18px 0; }
+.component-parameters details { margin-top: 12px; }
+.component-parameters summary { cursor: pointer; }
+.component-parameters textarea { min-height: 130px; }
+@media (max-width: 600px) { .parameter-grid { grid-template-columns: 1fr; } }
