@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { calculate, isLit, longestDark } from "../src/shared/engine";
+import { calculate, darkCoverage, isLit, longestDark } from "../src/shared/engine";
 import {
+  changeMode,
+  changeStorage,
   cloneDesign,
   chooseLocale,
   employeeEmail,
@@ -59,6 +61,77 @@ describe("physical model", () => {
     d.path = "direct";
     expect(calculate(d).status).toBe("incompatible");
   });
+  it.each(["battery", "pv", "hybrid"] as const)(
+    "ignores absent regulator consumption and losses for direct %s supply",
+    (mode) => {
+      // Synthetic valid direct circuit for dependency testing, not a Tiny specification.
+      const d = cloneDesign();
+      d.device = "custom";
+      d.mode = mode;
+      d.path = "direct";
+      d.load.voltage = 3;
+      d.load.minVoltage = 2.5;
+      d.load.maxVoltage = 4;
+      d.pv.voltage = 3;
+      d.pv.densityUwCm2 = 7;
+      d.regulation.iqUa = 0;
+      const baseline = calculate(d);
+      expect(baseline.status).toBe("conditional");
+      expect(Math.abs(baseline.energy.balanceErrorJ)).toBeLessThan(1e-6);
+      if (mode === "battery")
+        expect(baseline.batteryEstimateHours).toBeCloseTo(17000, 5);
+      else {
+        expect(baseline.requiredAreaCm2).toBeGreaterThan(0);
+        const expectedGeneration =
+          d.pv.densityUwCm2 * d.pv.areaCm2 * d.light.lux /
+          d.pv.referenceLux * d.pv.utilization / 1e6 *
+          d.light.hours * d.light.days * 3600;
+        expect(baseline.generationWeekJ).toBeCloseTo(expectedGeneration, 8);
+      }
+      for (const iq of [100, null]) {
+        d.regulation.iqUa = iq;
+        expect(calculate(d)).toEqual(baseline);
+      }
+      d.regulation.dropout = 5;
+      d.regulation.efficiency = 0.01;
+      d.regulation.harvestEfficiency = 0.01;
+      expect(calculate(d)).toEqual(baseline);
+    },
+  );
+  it("ignores inactive regulator current during direct capacitor discharge and peak checks", () => {
+    const d = changeStorage(cloneDesign(), "lic");
+    d.device = "custom";
+    d.mode = "battery";
+    d.path = "direct";
+    d.load.voltage = 3;
+    d.load.minVoltage = 2.5;
+    d.load.maxVoltage = 4;
+    d.regulation.charger = false;
+    d.regulation.mppt = false;
+    d.regulation.iqUa = 0;
+    const baseline = calculate(d);
+    expect(baseline.status).toBe("conditional");
+    expect(baseline.darkHours).not.toBeNull();
+    expect(Math.abs(baseline.energy.balanceErrorJ)).toBeLessThan(1e-6);
+    d.regulation.iqUa = 100000;
+    expect(calculate(d)).toEqual(baseline);
+  });
+  it.each(["ldo", "converter"] as const)(
+    "retains quiescent current consumption when a %s exists",
+    (path) => {
+      const d = cloneDesign();
+      d.mode = "battery";
+      d.path = path;
+      d.regulation.iqUa = 0;
+      const baseline = calculate(d);
+      d.regulation.iqUa = 100;
+      const withIq = calculate(d);
+      expect(withIq.status).toBe("conditional");
+      expect(withIq.batteryEstimateHours!).toBeLessThan(baseline.batteryEstimateHours!);
+      expect(withIq.energy.consumedJ).toBeGreaterThan(baseline.energy.consumedJ);
+      expect(Math.abs(withIq.energy.balanceErrorJ)).toBeLessThan(1e-6);
+    },
+  );
   it("does not let an LDO or direct wire claim MPPT or charging capability", () => {
     const d = cloneDesign();
     d.regulation.mppt = true;
@@ -122,6 +195,43 @@ describe("physical model", () => {
     d.light.hours = 10;
     d.load.phases[0].currentUa = NaN;
     expect(() => calculate(d)).toThrow();
+  });
+});
+describe("dark-period coverage", () => {
+  it("does not infer 62-hour coverage from a one-day LIC simulation", () => {
+    const d = changeMode(cloneDesign(), "hybrid");
+    d.horizonDays = 1;
+    const short = calculate(d);
+    expect(short.status).toBe("conditional");
+    expect(short.longestDarkHours).toBe(62);
+    expect(short.darkHours).toBeNull();
+    expect(darkCoverage(short, d.horizonDays)).toBe("unproven");
+    for (const days of [3, 30]) {
+      d.horizonDays = days;
+      const longer = calculate(d);
+      expect(longer.darkHours).toBeCloseTo(31.640007, 5);
+      expect(darkCoverage(longer, days)).toBe("shortfall");
+    }
+  });
+  it("uses the simulated lower bound and accepts equality with the target", () => {
+    const result = { status: "conditional" as const, darkHours: null, longestDarkHours: 62 };
+    expect(darkCoverage(result, 1)).toBe("unproven");
+    expect(darkCoverage(result, 3)).toBe("covered");
+    expect(darkCoverage({ ...result, longestDarkHours: 24 }, 1)).toBe("covered");
+    expect(darkCoverage({ ...result, darkHours: 61.99 }, 3)).toBe("shortfall");
+    expect(darkCoverage({ ...result, darkHours: 62 }, 3)).toBe("covered");
+    expect(darkCoverage({ ...result, darkHours: 63 }, 3)).toBe("covered");
+    expect(darkCoverage({ ...result, darkHours: 0 }, 3)).toBe("shortfall");
+    expect(darkCoverage({ ...result, darkHours: 0, longestDarkHours: 0 }, 3)).toBe("covered");
+  });
+  it("does not claim coverage for invalid or uncalculated results", () => {
+    const result = { status: "conditional" as const, darkHours: null, longestDarkHours: 62 };
+    expect(darkCoverage({ ...result, status: "incomplete" }, 30)).toBe("unproven");
+    expect(darkCoverage({ ...result, status: "incompatible" }, 30)).toBe("unproven");
+    for (const horizon of [0, -1, NaN, Infinity])
+      expect(darkCoverage(result, horizon)).toBe("unproven");
+    expect(darkCoverage({ ...result, darkHours: NaN }, 30)).toBe("unproven");
+    expect(darkCoverage({ ...result, longestDarkHours: -1 }, 30)).toBe("unproven");
   });
 });
 describe("datasheet candidates", () => {

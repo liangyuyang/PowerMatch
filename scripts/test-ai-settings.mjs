@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { modelConfigSchema } from "../src/shared/ai-config.ts";
+import { localConfigArgs, localStateArgs } from "./local-test-options.mjs";
 const base = "http://127.0.0.1:8787";
 const { token } = JSON.parse(
   fs.readFileSync("tmp/test-admin-browser.json", "utf8"),
@@ -59,10 +60,12 @@ function sql(query) {
     process.execPath,
     [
       "node_modules/wrangler/bin/wrangler.js",
+      ...localConfigArgs,
       "d1",
       "execute",
       "powermatch-db",
       "--local",
+      ...localStateArgs,
       "--file=tmp/test-ai-settings.sql",
     ],
     {

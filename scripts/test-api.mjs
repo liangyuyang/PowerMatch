@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomBytes, createHash } from "node:crypto";
 import { DEFAULT_DESIGN } from "../src/shared/model.ts";
+import { localConfigArgs, localStateArgs } from "./local-test-options.mjs";
 const base = "http://127.0.0.1:8787";
 const origin = "http://127.0.0.1:5173";
 const suffix = randomBytes(5).toString("hex");
@@ -28,11 +29,13 @@ execFileSync(
   process.execPath,
   [
     "node_modules/wrangler/bin/wrangler.js",
+    ...localConfigArgs,
     "d1",
     "migrations",
     "apply",
     "powermatch-db",
     "--local",
+    ...localStateArgs,
   ],
   {
     stdio: "pipe",
@@ -43,10 +46,12 @@ execFileSync(
   process.execPath,
   [
     "node_modules/wrangler/bin/wrangler.js",
+    ...localConfigArgs,
     "d1",
     "execute",
     "powermatch-db",
     "--local",
+    ...localStateArgs,
     "--file=tmp/test-identities.sql",
   ],
   {
@@ -103,10 +108,12 @@ execFileSync(
   process.execPath,
   [
     "node_modules/wrangler/bin/wrangler.js",
+    ...localConfigArgs,
     "d1",
     "execute",
     "powermatch-db",
     "--local",
+    ...localStateArgs,
     "--file=tmp/test-link.sql",
   ],
   {

@@ -1,5 +1,5 @@
 import { designSchema, type Design } from "./model";
-export const ENGINE_VERSION = "0.1.0";
+export const ENGINE_VERSION = "0.1.1";
 export interface TracePoint {
   hour: number;
   storedJ: number;
@@ -36,6 +36,29 @@ export interface Result {
     finalJ: number;
     balanceErrorJ: number;
   };
+}
+export function darkCoverage(
+  result: Pick<Result, "status" | "darkHours" | "longestDarkHours">,
+  horizonDays: number,
+): "covered" | "shortfall" | "unproven" {
+  if (
+    result.status !== "conditional" ||
+    !Number.isFinite(result.longestDarkHours) ||
+    result.longestDarkHours < 0
+  )
+    return "unproven";
+  if (result.darkHours !== null)
+    return Number.isFinite(result.darkHours) && result.darkHours >= 0
+      ? result.darkHours >= result.longestDarkHours
+        ? "covered"
+        : "shortfall"
+      : "unproven";
+  // No outage observed establishes only the simulated duration as a lower bound.
+  return Number.isFinite(horizonDays) &&
+    horizonDays > 0 &&
+    horizonDays * 24 >= result.longestDarkHours
+    ? "covered"
+    : "unproven";
 }
 export function isLit(d: Design, hour: number) {
   const absolute = hour + d.light.startHour;
@@ -180,6 +203,8 @@ export function calculate(input: Design): Result {
       : ((d.storage.capacityMah! * np) / 1000) * vUpper * 3600
     : 0;
   const loadW = out.loadUw / 1e6;
+  // A direct wire has no regulator; retained editor values must not add losses.
+  const regulatorIqUa = d.path === "direct" ? 0 : (d.regulation.iqUa ?? 0);
   const angle = d.light.planeMeasured
     ? 1
     : Math.max(0, Math.cos((d.light.angle * Math.PI) / 180));
@@ -191,33 +216,33 @@ export function calculate(input: Design): Result {
   const genW =
     pvRaw *
     (d.regulation.mppt ? 1 : d.pv.utilization) *
-    (d.mode === "hybrid"
-      ? d.regulation.harvestEfficiency
-      : d.path === "ldo"
-        ? d.load.voltage / d.pv.voltage!
-        : d.path === "converter"
-          ? d.regulation.efficiency
-          : 1);
+    (d.path === "direct"
+      ? 1
+      : d.mode === "hybrid"
+        ? d.regulation.harvestEfficiency
+        : d.path === "ldo"
+          ? d.load.voltage / d.pv.voltage!
+          : d.regulation.efficiency);
   out.generationWeekJ = hasPV ? genW * out.weekLightHours * 3600 : null;
 
   if (
     d.mode === "pv" &&
     genW <
       ((peak * d.load.voltage) / 1e6) * (1 + d.margin / 100) +
-        ((d.regulation.iqUa ?? 0) * d.load.voltage) / 1e6
+        (regulatorIqUa * d.load.voltage) / 1e6
   )
     out.errors.push("pv-peak-shortfall");
   const voltage = (energy: number) =>
     cap ? Math.sqrt(vCut * vCut + (2 * energy) / capacitance) : vUpper;
   const demand = (v: number) =>
     d.path === "ldo"
-      ? ((average + (d.regulation.iqUa ?? 0)) * v) / 1e6
+      ? ((average + regulatorIqUa) * v) / 1e6
       : loadW / (d.path === "converter" ? d.regulation.efficiency : 1) +
-        ((d.regulation.iqUa ?? 0) * v) / 1e6;
+        (regulatorIqUa * v) / 1e6;
   if (hasPV && genW > 0 && out.weekLightHours > 0) {
     const supplyW = hasStorage
       ? demand(vUpper) + ((d.storage.leakUa ?? 0) * np * vUpper) / 1e6
-      : loadW + ((d.regulation.iqUa ?? 0) * d.load.voltage) / 1e6;
+      : loadW + (regulatorIqUa * d.load.voltage) / 1e6;
     out.requiredAreaCm2 =
       ((d.pv.areaCm2 * supplyW * 168) / (genW * out.weekLightHours)) *
       (1 + d.margin / 100);
@@ -226,8 +251,8 @@ export function calculate(input: Design): Result {
     const i =
       (d.path === "converter"
         ? (peak * d.load.voltage) / (vUpper * d.regulation.efficiency) +
-          (d.regulation.iqUa ?? 0)
-        : peak + (d.path === "ldo" ? (d.regulation.iqUa ?? 0) : 0)) / 1e6;
+          regulatorIqUa
+        : peak + regulatorIqUa) / 1e6;
     const sag = (i * d.storage.esr! * ns) / np;
     if (vUpper - sag <= vCut) out.errors.push("storage-peak-sag");
   }
@@ -252,7 +277,7 @@ export function calculate(input: Design): Result {
       const v = hasStorage ? voltage(e) : d.load.voltage;
       const required = hasStorage
         ? demand(v)
-        : loadW + ((d.regulation.iqUa ?? 0) * d.load.voltage) / 1e6;
+        : loadW + (regulatorIqUa * d.load.voltage) / 1e6;
       const leak = hasStorage ? ((d.storage.leakUa ?? 0) * np * v) / 1e6 : 0;
       // Primary backup must never be charged. PV supplies demand first and any excess is discarded.
       const usableIncoming =
@@ -266,8 +291,8 @@ export function calculate(input: Design): Result {
       const pulseCurrent =
         (d.path === "converter"
           ? (peak * d.load.voltage) / (v * d.regulation.efficiency) +
-            (d.regulation.iqUa ?? 0)
-          : peak + (d.path === "ldo" ? (d.regulation.iqUa ?? 0) : 0)) / 1e6;
+            regulatorIqUa
+          : peak + regulatorIqUa) / 1e6;
       const pulseSupported =
         !hasStorage ||
         v - (pulseCurrent * (d.storage.esr ?? 0) * ns) / np > vCut;

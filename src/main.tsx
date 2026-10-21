@@ -1,3 +1,4 @@
+import "./csp-runtime";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -35,7 +36,7 @@ import {
   type Component,
   type Locale,
 } from "./shared/model";
-import { calculate, ENGINE_VERSION, type Result } from "./shared/engine";
+import { calculate, darkCoverage, ENGINE_VERSION, type Result } from "./shared/engine";
 import { CATALOG } from "./shared/catalog";
 import { t, explain, languageNames, type Word } from "./i18n";
 import "./style.css";
@@ -43,24 +44,29 @@ const AIAssistant = React.lazy(() => import("./ai-ui").then((module) => ({ defau
 const AIAdmin = React.lazy(() => import("./model-settings").then((module) => ({ default: module.AIAdmin })));
 const EnergyChart = React.lazy(() => import("./energy-chart"));
 import { canUseComponent, selectComponent } from "./shared/assistant";
-import { draftKey, readDraft, writeDraft } from "./shared/draft";
+import { checkDraftAccess, defaultDraftScope, draftKey, readDraft, writeDraft, type DraftAccess, type DraftCaseContext } from "./shared/draft";
 import { ComponentHover } from "./component-hover";
 import { NumericInput } from "./numeric-input";
 
-async function api(path: string, data?: unknown, method?: string) {
+class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+async function api(path: string, data?: unknown, method?: string, expectedActor?: string) {
   const response = await fetch("/api" + path, {
     method: method ?? (data ? "POST" : "GET"),
-    headers:
-      data instanceof FormData
+    headers: {
+      ...(data instanceof FormData
         ? {}
         : data
           ? { "Content-Type": "application/json" }
-          : {},
+          : {}),
+      ...(expectedActor ? { "X-PowerMatch-Actor": expectedActor } : {}),
+    },
     body:
       data instanceof FormData ? data : data ? JSON.stringify(data) : undefined,
   });
   const result: any = await response.json();
-  if (!response.ok) throw new Error(result.error ?? `HTTP ${response.status}`);
+  if (!response.ok) throw new ApiError(result.error ?? `HTTP ${response.status}`, response.status);
   return result;
 }
 const fmt = (n: number, d = 2) => Number(n.toFixed(d)).toString();
@@ -225,6 +231,7 @@ function App() {
       revision: number;
       parent: string;
       canEdit: boolean;
+      originalScope: Scope;
     } | null>(null),
     [revisions, setRevisions] = useState<Revision[]>([]),
     [components, setComponents] = useState<Component[]>(CATALOG),
@@ -240,7 +247,10 @@ function App() {
     }),
     [lockConditions, setLockConditions] = useState(true),
     [sessionReady, setSessionReady] = useState(false),
+    [sessionUnavailable, setSessionUnavailable] = useState(false),
     [draftOwner, setDraftOwner] = useState<string | null>(null),
+    [draftAccess, setDraftAccess] = useState<DraftAccess | "checking" | "unavailable">("ready"),
+    [authPending, setAuthPending] = useState(false),
     [undoPreset, setUndoPreset] = useState<Design | null>(null),
     [postBody, setPostBody] = useState(""),
     [posts, setPosts] = useState<any[]>([]),
@@ -259,6 +269,18 @@ function App() {
     [partCategory, setPartCategory] = useState("battery"),
     [partSource, setPartSource] = useState("");
   const resultCache = useRef(new Map<string, Result | null>());
+  const identity = viewer?.id ?? "guest";
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const identityEpoch = useRef(0);
+  const sessionRequest = useRef(0);
+  const messageRequest = useRef(0);
+  const caseRequest = useRef(0);
+  const draftContext = (): DraftCaseContext | null => current ? {
+    caseId: current.id, expectedRevision: current.revision, parentRevision: current.parent || null,
+    intent: current.canEdit ? "edit" : "copy", originalScope: current.originalScope,
+  } : null;
+  const canSaveDraft = sessionReady && !sessionUnavailable && !authPending && draftOwner === identity && draftAccess === "ready" && (scope === "public" || !!viewer?.employee);
   const calculateCached = (design: Design) => {
     const key = calculationKey(design);
     if (resultCache.current.has(key)) return resultCache.current.get(key)!;
@@ -282,30 +304,85 @@ function App() {
       setBusy(false);
     }
   };
+  const checkCase = async (context: DraftCaseContext, owner: string, epoch: number, request: number) => {
+    try {
+      const response = await api("/cases/" + encodeURIComponent(context.caseId));
+      if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return false;
+      const access = checkDraftAccess(context, response.case, response.revisions);
+      setRevisions(response.revisions);
+      setDraftAccess(access);
+      return access === "ready";
+    } catch (error) {
+      if (identityRef.current === owner && identityEpoch.current === epoch && caseRequest.current === request) {
+        setDraftAccess(error instanceof ApiError && [401, 403, 404].includes(error.status) ? "forbidden" : "unavailable");
+      }
+      return false;
+    }
+  };
+  const copyDraft = () => {
+    ++caseRequest.current;
+    setCurrent(draftAccess === "ready" && current ? { ...current, canEdit: false } : null);
+    // A draft that lost employee access must require an explicit visibility choice.
+    setScope(scope !== "public" && !viewer?.employee ? scope : defaultDraftScope(viewer?.employee));
+    setDraftAccess("ready");
+    setD({ ...d, name: d.name.slice(0, 90) + " · Copy" });
+    setNotice(bi("已保留输入为新副本；请确认保存范围。", "Inputs preserved as a new copy. Confirm its visibility before saving."));
+  };
+  const refreshSession = async () => {
+    const epoch = identityEpoch.current;
+    const request = ++sessionRequest.current;
+    try {
+      const x = await api("/session");
+      if (identityEpoch.current !== epoch || sessionRequest.current !== request) return;
+      setViewer(x.user);
+      setEmailReady(x.emailConfigured);
+      setSessionUnavailable(false);
+      setSessionReady(true);
+      if (x.user) {
+        const p = x.user.localeMode === "manual" ? x.user.locale : "auto";
+        setPreference(p);
+        setLocale(chooseLocale(p, navigator.languages));
+        try { localStorage.setItem("pm-language", p); } catch { /* Language preference storage is optional. */ }
+      }
+    } catch {
+      if (identityEpoch.current === epoch && sessionRequest.current === request) setSessionUnavailable(true);
+    }
+  };
+  const ensureActor = async (owner: string, epoch: number, request: number) => {
+    try {
+      const response = await api("/session");
+      if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return false;
+      if ((response.user?.id ?? "guest") !== owner || !!response.user?.employee !== !!viewer?.employee) {
+        ++identityEpoch.current;
+        setViewer(response.user);
+        setSessionReady(true);
+        setSessionUnavailable(false);
+        setModal(null);
+        setNotice(bi("登录身份或权限已改变，已停止本次保存并切换到对应草稿；请重新检查。", "Your identity or permissions changed. This save was stopped; the corresponding draft is active. Review before saving again."));
+        return false;
+      }
+      return true;
+    } catch {
+      if (identityRef.current === owner && identityEpoch.current === epoch && caseRequest.current === request) {
+        setSessionUnavailable(true);
+        setModal(null);
+      }
+      return false;
+    }
+  };
+  const loadMessages = async () => {
+    const owner = identity;
+    const epoch = identityEpoch.current;
+    const request = ++messageRequest.current;
+    setMessages([]);
+    const response = await api("/messages");
+    if (identityRef.current === owner && identityEpoch.current === epoch && messageRequest.current === request) setMessages(response.messages);
+  };
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
   useEffect(() => {
-    api("/session")
-      .then((x) => {
-        setViewer(x.user);
-        setEmailReady(x.emailConfigured);
-        if (x.user) {
-          const p = x.user.localeMode === "manual" ? x.user.locale : "auto";
-          setPreference(p);
-          setLocale(chooseLocale(p, navigator.languages));
-          localStorage.setItem("pm-language", p);
-        }
-      })
-      .catch(() =>
-        setNotice(
-          bi(
-            "服务暂时未连接，计算可继续；保存需等待服务恢复。",
-            "Server unavailable. Calculation remains local; saving requires the server.",
-          ),
-        ),
-      )
-      .finally(() => setSessionReady(true));
+    void refreshSession();
     api("/components")
       .then((x) => setComponents(x.components))
       .catch(() => {});
@@ -328,60 +405,85 @@ function App() {
   useEffect(() => {
     if (!sessionReady) return;
     const owner = viewer?.id ?? "guest";
+    const epoch = identityEpoch.current;
+    const request = ++caseRequest.current;
     let saved = null;
     try {
-      saved = readDraft((owner === "guest" ? localStorage : sessionStorage).getItem(draftKey(owner)), owner);
+      saved = readDraft((owner === "guest" ? localStorage : sessionStorage).getItem(draftKey(owner)), owner, defaultDraftScope(viewer?.employee));
     } catch { /* storage may be disabled */ }
+    if (draftOwner !== null) setModal(null);
+    setAiOpen(false);
+    setAiLoaded(false);
+    setPicker(null);
+    setUndoAI(null);
+    setUndoPreset(null);
+    setRevisions([]);
+    setCases([]);
+    setMessages([]);
+    setPosts([]);
+    setPostBody("");
+    setMessageBody("");
+    setRecipient("");
+    setTarget({ type: "application", target: "general" });
+    setAdmin(null);
     if (saved) {
       setD(saved.design);
       setSnapshots(saved.snapshots);
       setLockConditions(saved.lockConditions);
+      setScope(saved.intendedScope);
+      const context = saved.caseContext;
+      setCurrent(context ? { id: context.caseId, revision: context.expectedRevision, parent: context.parentRevision ?? "", canEdit: context.intent === "edit", originalScope: context.originalScope } : null);
+      setDraftAccess(context ? "checking" : "ready");
+      if (context) void checkCase(context, owner, epoch, request);
+      if (saved.legacy) setNotice(bi("已恢复旧格式草稿；旧草稿不含案例关联，保存将创建新方案。", "Legacy draft restored. It has no saved case link; saving creates a new case."));
+    } else {
+      if (draftOwner !== null) {
+        setD(cloneDesign());
+        setSnapshots(starterSnapshots());
+        setLockConditions(true);
+      }
       setCurrent(null);
-      setUndoPreset(null);
-    } else if (draftOwner !== null && !viewer) {
-      setD(cloneDesign());
-      setSnapshots(starterSnapshots());
-      setCurrent(null);
-      setUndoPreset(null);
+      setScope(defaultDraftScope(viewer?.employee));
+      setDraftAccess("ready");
     }
     setDraftOwner(owner);
+    return () => { ++caseRequest.current; };
   }, [sessionReady, viewer?.id]);
   useEffect(() => {
-    if (!draftOwner) return;
+    if (!sessionReady || authPending || !draftOwner || draftOwner !== identity) return;
     try {
       (draftOwner === "guest" ? localStorage : sessionStorage).setItem(draftKey(draftOwner), writeDraft(draftOwner, {
-        design: d, snapshots, lockConditions,
+        design: d, snapshots, lockConditions, intendedScope: scope, caseContext: draftContext(),
       }));
     } catch {
       // Browser storage may be unavailable; server-side case saving still works.
     }
-  }, [draftOwner, d, snapshots, lockConditions]);
+  }, [draftOwner, d, snapshots, lockConditions, scope, current, sessionReady, authPending, identity]);
   useEffect(() => {
     if (!sessionReady || !viewer || new URLSearchParams(location.search).get("messages") !== "1") return;
     const url = new URL(location.href);
     url.searchParams.delete("messages");
     history.replaceState({}, "", url.pathname + url.search + url.hash);
     setModal("messages");
-    void api("/messages")
-      .then((x) => setMessages(x.messages))
+    void loadMessages()
       .catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
   }, [sessionReady, viewer?.id]);
   useEffect(() => {
+    let active = true;
+    const owner = identity;
+    const epoch = identityEpoch.current;
+    const applies = () => active && identityRef.current === owner && identityEpoch.current === epoch;
     if (page === "hall")
-      run(async () => setCases((await api("/cases?scope=" + hallScope)).cases));
+      run(async () => { const response = await api("/cases?scope=" + hallScope); if (applies()) setCases(response.cases); });
     if (page === "forum")
-      run(async () =>
-        setPosts(
-          (
-            await api(
-              `/posts?type=${target.type}&target=${encodeURIComponent(target.target)}`,
-            )
-          ).posts,
-        ),
-      );
+      run(async () => {
+        const response = await api(`/posts?type=${target.type}&target=${encodeURIComponent(target.target)}`);
+        if (applies()) setPosts(response.posts);
+      });
     if (page === "admin" && viewer?.admin)
-      run(async () => setAdmin(await api("/admin")));
-  }, [page, hallScope, target, viewer?.admin]);
+      run(async () => { const response = await api("/admin"); if (applies()) setAdmin(response); });
+    return () => { active = false; };
+  }, [page, hallScope, target, viewer?.id, viewer?.admin]);
   const update = (group: keyof Design, key: string, value: unknown) => {
     setUndoPreset(null);
     setD((old) => ({
@@ -489,7 +591,10 @@ function App() {
     if (design.mode === "battery")
       return bi(`仅由电池供电。${observed}标称容量估算未包含真实放电曲线。`, `Battery-only supply. ${observed}The nominal-capacity estimate omits the actual discharge curve.`);
     const dark = r.darkHours ?? design.horizonDays * 24;
-    const bridge = r.darkHours === null || dark >= r.longestDarkHours
+    const coverage = darkCoverage(r, design.horizonDays);
+    const bridge = coverage === "unproven"
+      ? bi(`仿真时长仅验证 ${fmt(design.horizonDays * 24)} 小时，尚不足以判断能否覆盖最长约 ${fmt(r.longestDarkHours)} 小时暗期。`, `The simulation verifies only ${fmt(design.horizonDays * 24)} hours, which is insufficient to establish coverage of the longest ${fmt(r.longestDarkHours)}-hour dark interval.`)
+      : coverage === "covered"
       ? bi(`当前储能在模型中可覆盖最长约 ${fmt(r.longestDarkHours)} 小时暗期。`, `The modeled storage can cover the longest ${fmt(r.longestDarkHours)}-hour dark interval.`)
       : bi(`最长暗期约 ${fmt(r.longestDarkHours)} 小时，单靠当前储能约支撑 ${fmt(dark)} 小时，缺口约 ${fmt(r.longestDarkHours - dark)} 小时。`, `The longest dark interval is ${fmt(r.longestDarkHours)} hours; storage alone lasts about ${fmt(dark)} hours, a gap of ${fmt(r.longestDarkHours - dark)} hours.`);
     return `${bridge} ${observed}`;
@@ -498,7 +603,13 @@ function App() {
     components.find((part) => part.id === id)?.name ?? CATALOG.find((part) => part.id === id)?.name ?? id;
   const openCase = async (id: string, duplicate = false) =>
     run(async () => {
+      if (!sessionReady || authPending) return;
+      const owner = identity;
+      const epoch = identityEpoch.current;
+      const request = ++caseRequest.current;
       const x = await api("/cases/" + id);
+      if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return;
+      if (!x.revisions.length) throw new Error(bi("没有可读取的修订。", "No readable revision is available."));
       setD(x.revisions[0].design);
       setUndoPreset(null);
       setCurrent({
@@ -506,9 +617,11 @@ function App() {
         revision: x.case.latest_revision,
         parent: x.revisions[0].id,
         canEdit: !!x.case.canEdit && !duplicate,
+        originalScope: x.case.scope,
       });
+      setDraftAccess("ready");
       setRevisions(x.revisions);
-      setScope(duplicate ? "public" : x.case.scope);
+      setScope(duplicate || !x.case.canEdit ? defaultDraftScope(viewer?.employee) : x.case.scope);
       setPage("workbench");
       if (duplicate)
         setNotice(
@@ -811,9 +924,7 @@ function App() {
               <button
                 onClick={() => {
                   setModal("messages");
-                  run(async () =>
-                    setMessages((await api("/messages")).messages),
-                  );
+                  void run(loadMessages);
                 }}
               >
                 <Envelope />
@@ -821,9 +932,20 @@ function App() {
               <button
                 onClick={() =>
                   run(async () => {
-                    await api("/auth/logout", {});
-                    try { sessionStorage.removeItem(draftKey(viewer.id)); } catch { /* storage may be disabled */ }
-                    setViewer(null);
+                    setAuthPending(true);
+                    ++identityEpoch.current;
+                    ++caseRequest.current;
+                    try {
+                      await api("/auth/logout", {});
+                      try { sessionStorage.removeItem(draftKey(viewer.id)); } catch { /* storage may be disabled */ }
+                      setViewer(null);
+                      setSessionReady(true);
+                      setSessionUnavailable(false);
+                    } catch (error) {
+                      setDraftAccess((access) => access === "checking" ? "unavailable" : access);
+                      void refreshSession();
+                      throw error;
+                    } finally { setAuthPending(false); }
                   })
                 }
               >
@@ -848,7 +970,7 @@ function App() {
             </p>
           </div>
           {["workbench", "compare"].includes(page) && (
-            <div className="toolbar">
+            <div className="toolbar" inert={!sessionReady || authPending || draftOwner !== identity}>
               <button className="ai-launch" onClick={() => { setAiLoaded(true); setAiOpen(true); }}>
                 <Chats />
                 {bi("AI 设计助手", "AI assistant")}
@@ -885,7 +1007,7 @@ function App() {
               <button
                 className="primary"
                 onClick={() => setModal("save")}
-                disabled={!valid.success}
+                disabled={!valid.success || !sessionReady || authPending || draftOwner !== identity}
               >
                 <FloppyDisk />
                 {tr("save")}
@@ -901,6 +1023,30 @@ function App() {
             </button>
           </div>
         )}
+        {(!sessionReady || sessionUnavailable) && <div role="status" className="notice">
+          <span>{sessionUnavailable
+            ? bi("暂时无法核实登录身份，已暂停保存；现有输入保留。请重试身份核实。", "Your identity could not be verified. Saving is paused and existing inputs are preserved. Retry verification.")
+            : bi("正在核实身份并恢复对应草稿，请稍候。", "Verifying your identity and restoring its draft. Please wait.")}</span>
+          {sessionUnavailable && <button disabled={busy || authPending} onClick={() => void run(refreshSession)}>{bi("重试身份核实", "Retry identity verification")}</button>}
+        </div>}
+        {draftAccess !== "ready" && (
+          <div role="status" className="notice">
+            <span>{draftAccess === "checking"
+              ? bi("草稿输入已恢复，正在核实案例权限及原修订；暂不能保存。", "Draft inputs restored. Checking case access and the saved revision before saving.")
+              : draftAccess === "conflict"
+                ? bi("案例已有更新。保留了本机输入及原预期修订号；请另存副本，或明确重新打开案例后再合并。", "This case has newer revisions. Your inputs and original expected revision are preserved. Save a copy, or reopen the case explicitly to merge changes.")
+                : draftAccess === "scope-changed"
+                  ? bi("服务端保存范围已改变；为避免重新公开，已暂停保存。输入仍保留，可另存副本。", "Server visibility has changed. Saving is paused to prevent accidental republication. Inputs are preserved; you can save a copy.")
+                  : draftAccess === "unavailable"
+                    ? bi("暂时无法核实案例。输入及关联已保留；可以重试，或另存不关联原案例的副本。", "Case verification is temporarily unavailable. Inputs and case links are preserved. Retry or create an independent copy.")
+                    : bi("原案例或父修订已不可访问，可能被删除或权限改变。输入仍保留；请另存独立副本。", "The case or parent revision is no longer accessible, possibly due to deletion or changed access. Inputs are preserved; create an independent copy.")}</span>
+            {draftAccess !== "checking" && <>
+              <button onClick={() => { const context = draftContext(); if (context) { setDraftAccess("checking"); void checkCase(context, identity, identityEpoch.current, ++caseRequest.current); } }}>{bi("重新核实", "Retry verification")}</button>
+              <button onClick={copyDraft}>{bi("保留输入，另存副本", "Keep inputs as a copy")}</button>
+            </>}
+          </div>
+        )}
+        <div inert={!sessionReady || authPending || draftOwner !== identity}>
         {page === "workbench" && (
           <>
             <div className="design-bar">
@@ -914,10 +1060,7 @@ function App() {
                 {current ? `v${current.revision}` : "DRAFT"}
               </span>
               <button
-                onClick={() => {
-                  setCurrent(current ? { ...current, canEdit: false } : null);
-                  setD({ ...d, name: d.name + " · Copy" });
-                }}
+                onClick={copyDraft}
               >
                 <Copy />
                 {tr("copy")}
@@ -2012,10 +2155,11 @@ function App() {
             </section>
           </div>
         )}
+        </div>
       </main>
       <footer>
         <img src="/assets/zenmeasure-gray.png" alt="ZenMeasure" />
-        <span>PowerMatch · Open source · Engine 0.1.0</span>
+        <span>PowerMatch · Open source · Engine {ENGINE_VERSION}</span>
         <a
           href="https://github.com/liangyuyang/PowerMatch"
           target="_blank"
@@ -2025,6 +2169,7 @@ function App() {
         </a>
       </footer>
       {aiLoaded && <React.Suspense fallback={<p role="status">{bi("正在打开 AI 助手…", "Opening AI assistant…")}</p>}><AIAssistant
+        key={identity}
         open={aiOpen}
         onClose={() => setAiOpen(false)}
         Dialog={ModalShell}
@@ -2036,6 +2181,7 @@ function App() {
           setModal("login");
         }}
         onApply={(base, next) => {
+          if (identityRef.current !== identity || authPending) return;
           if (JSON.stringify(d) !== JSON.stringify(base)) {
             setNotice(
               bi(
@@ -2049,6 +2195,7 @@ function App() {
           setD(cloneDesign(next));
         }}
         onCompare={(next) => {
+          if (identityRef.current !== identity || authPending) return;
           setSnapshots((s) => [...s.slice(-2), cloneDesign(next)]);
           setPage("compare");
         }}
@@ -2176,10 +2323,21 @@ function App() {
                 e.preventDefault();
                 run(async () => {
                   if (loginToken) {
-                    const x = await api("/auth/consume", { token: loginToken });
-                    setViewer(x.user);
-                    setLoginToken(null);
-                    setModal(null);
+                    setAuthPending(true);
+                    ++identityEpoch.current;
+                    ++caseRequest.current;
+                    try {
+                      const x = await api("/auth/consume", { token: loginToken });
+                      setViewer(x.user);
+                      setSessionReady(true);
+                      setSessionUnavailable(false);
+                      setLoginToken(null);
+                      setModal(null);
+                    } catch (error) {
+                      setDraftAccess((access) => access === "checking" ? "unavailable" : access);
+                      void refreshSession();
+                      throw error;
+                    } finally { setAuthPending(false); }
                   } else {
                     await api("/auth/request", { email, locale });
                     setNotice(tr("emailSent"));
@@ -2294,24 +2452,68 @@ function App() {
               onSubmit={(e) => {
                 e.preventDefault();
                 run(async () => {
-                  const x = await api("/cases", {
-                    ...(current?.canEdit
-                      ? { id: current.id, expectedRevision: current.revision }
-                      : {}),
-                    name: d.name,
-                    design: d,
-                    scope,
-                    parentRevision: current?.parent ?? null,
-                  });
+                  if (!canSaveDraft) return;
+                  const owner = identity;
+                  const epoch = identityEpoch.current;
+                  const request = ++caseRequest.current;
+                  if (!await ensureActor(owner, epoch, request)) return;
+                  const context = draftContext();
+                  if (context) {
+                    setDraftAccess("checking");
+                    if (!await checkCase(context, owner, epoch, request)) {
+                      if (identityRef.current === owner && identityEpoch.current === epoch && caseRequest.current === request) setModal(null);
+                      return;
+                    }
+                  }
+                  let x;
+                  try {
+                    x = await api("/cases", {
+                      ...(current?.canEdit
+                        ? { id: current.id, expectedRevision: current.revision }
+                        : {}),
+                      name: d.name,
+                      design: d,
+                      scope,
+                      expectedActor: owner,
+                      parentRevision: current?.parent || null,
+                    });
+                  } catch (error) {
+                    if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return;
+                    if (error instanceof ApiError && error.status === 409) {
+                      if (error.message === "identity-conflict") {
+                        setSessionUnavailable(true);
+                        setNotice(bi("登录身份已改变，本次保存已停止；输入保留在原身份草稿中。", "Your identity changed. Saving stopped; inputs remain in the original identity's draft."));
+                        void refreshSession();
+                      } else setDraftAccess("conflict");
+                      setModal(null);
+                      return;
+                    }
+                    if (context && error instanceof ApiError && [401, 403, 404].includes(error.status)) {
+                      setDraftAccess("forbidden");
+                      setModal(null);
+                      return;
+                    }
+                    throw error;
+                  }
+                  if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return;
                   setCurrent({
                     id: x.id,
                     revision: x.number,
                     parent: x.revisionId,
                     canEdit: true,
+                    originalScope: scope,
                   });
+                  setDraftAccess("ready");
                   setNotice(tr("saved"));
                   setModal(null);
-                  setRevisions((await api("/cases/" + x.id)).revisions);
+                  // Refresh the revision list without turning a successful save into a failure.
+                  try {
+                    const response = await api("/cases/" + x.id);
+                    if (identityRef.current === owner && identityEpoch.current === epoch && caseRequest.current === request) {
+                      setRevisions(response.revisions);
+                      if (response.case.latest_revision !== x.number) setDraftAccess("conflict");
+                    }
+                  } catch { /* Saved metadata stays intact if the follow-up read is unavailable. */ }
                 });
               }}
             >
@@ -2330,12 +2532,15 @@ function App() {
                   [
                     "public",
                     ...(viewer?.employee ? ["company", "private"] : []),
+                    ...(!viewer?.employee && scope !== "public" ? [scope] : []),
                   ] as Scope[]
                 ).map((s) => [s, tr(s)]),
                 (v) => setScope(v as Scope),
               )}
               <p className="warning">
-                {scope === "public"
+                {scope !== "public" && !viewer?.employee
+                  ? bi("当前身份不能保存此范围。已保留原范围；只有明确选择公开后才会公开保存，请先检查保密内容。", "This identity cannot save with this visibility. The original visibility is retained. Explicitly choose public only after checking for confidential content.")
+                  : scope === "public"
                   ? bi(
                       "保存后任何访客都可查看和复制此版本，请勿包含保密资料。",
                       "Anyone can read and copy this revision. Do not include confidential information.",
@@ -2345,10 +2550,10 @@ function App() {
                       "Visible only to authorized users.",
                     )}
               </p>
-              <button className="primary" disabled={busy || !valid.success}>
+              <button className="primary" disabled={busy || !valid.success || !canSaveDraft}>
                 {tr("save")}
               </button>
-              {current?.canEdit && (
+              {current?.canEdit && draftAccess === "ready" && (
                 <button type="button" onClick={() => setModal("delete")}>
                   {tr("delete")}
                 </button>
@@ -2368,9 +2573,27 @@ function App() {
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
-                    if (current)
-                      await api("/cases/" + current.id, undefined, "DELETE");
+                    if (!current || !canSaveDraft) return;
+                    const owner = identity;
+                    const epoch = identityEpoch.current;
+                    const request = ++caseRequest.current;
+                    if (!await ensureActor(owner, epoch, request)) return;
+                    try {
+                      await api("/cases/" + current.id, undefined, "DELETE", owner);
+                    } catch (error) {
+                      if (error instanceof ApiError && error.message === "identity-conflict") {
+                        setSessionUnavailable(true);
+                        setModal(null);
+                        setNotice(bi("登录身份已改变，删除已停止；输入已保留。", "Your identity changed. Deletion stopped and inputs are preserved."));
+                        void refreshSession();
+                        return;
+                      }
+                      throw error;
+                    }
+                    if (identityRef.current !== owner || identityEpoch.current !== epoch || caseRequest.current !== request) return;
                     setCurrent(null);
+                    setRevisions([]);
+                    setDraftAccess("ready");
                     setModal(null);
                   })
                 }
@@ -2688,11 +2911,13 @@ function App() {
               </p>
             ))}
           <h2>{bi("可复核输入参数", "Reproducible inputs")}</h2>
+          <p>{bi("展示数值最多保留两位小数；完整精度请使用工作台的 JSON 导出。", "Values display at most two decimals; export JSON from the workbench for full precision.")}</p>
           <table className="parameter-table"><thead><tr><th>{bi("参数", "Parameter")}</th><th>{bi("数值", "Value")}</th><th>{bi("依据", "Basis")}</th></tr></thead><tbody>
             {Object.entries(d.parameterSources ?? {}).map(([path, source]) => {
               const [group, key] = path.split(".");
               const value = (d as any)[group]?.[key];
-              return <tr key={path}><td>{path}</td><td>{value === null || value === undefined ? "—" : String(value)}</td><td>{source.kind} · {source.reference ?? source.detail ?? ""}</td></tr>;
+              const displayed = value === null || value === undefined ? "—" : typeof value === "number" ? key.endsWith("Ua") ? currentText(value) : fmt(value) : String(value);
+              return <tr key={path}><td>{path}</td><td>{displayed}</td><td>{source.kind} · {source.reference ?? source.detail ?? ""}</td></tr>;
             })}
           </tbody></table>
           <p>ZenMeasure · https://powermatch.zenmeasure.space</p>

@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 const browser = await chromium.launch({ headless: true, channel: "msedge" });
 try {
@@ -7,6 +7,7 @@ try {
   });
   await page.addInitScript(() => localStorage.setItem("pm-language", "zh"));
   await page.goto("http://127.0.0.1:5173");
+  await expect(page.getByRole("button", { name: "保存版本", exact: true })).toBeEnabled();
   await page.locator(".app-version").waitFor();
   assert.match(
     await page.locator(".app-version").innerText(),

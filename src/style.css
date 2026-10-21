@@ -1031,6 +1031,7 @@ summary {
     size: A4;
     margin: 18mm;
   }
+  :root,
   body {
     background: white;
   }
@@ -1073,6 +1074,10 @@ summary {
   }
   .print-report p {
     font-size: 10pt;
+  }
+  .print-report a,
+  .print-report td {
+    overflow-wrap: anywhere;
   }
   .print-report .energy-flow {
     break-inside: avoid;

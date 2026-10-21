@@ -2,7 +2,12 @@ import { extractText } from "unpdf";
 import { extractCandidates } from "../src/shared/spec-parser";
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { bodyLimit } from "hono/body-limit";
+import {
+  boundedRequestBody,
+  protectApiResponse,
+  rateLimited,
+  reserveRate,
+} from "./http-security";
 import { z } from "zod";
 import { registerAI } from "./ai";
 import {
@@ -85,15 +90,7 @@ const jsonError = (error: string, status = 400) =>
     headers: { "Content-Type": "application/json" },
   });
 async function rate(db: D1Database, key: string, max: number, windowS: number) {
-  const keyHash = await hash(key);
-  const t = now();
-  const row = await db
-    .prepare(
-      "INSERT INTO rate_limits(key,count,expires_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires_at<=? THEN 1 ELSE count+1 END,expires_at=CASE WHEN expires_at<=? THEN ? ELSE expires_at END RETURNING count",
-    )
-    .bind(keyHash, t + windowS, t, t, t + windowS)
-    .first<{ count: number }>();
-  return row!.count <= max;
+  return (await reserveRate(db, key, max, windowS)).allowed;
 }
 async function audit(
   env: Env,
@@ -169,17 +166,12 @@ async function processMail(env: Env) {
   }
 }
 
-app.use(
-  "/api/*",
-  bodyLimit({
-    maxSize: 21 * 1024 * 1024,
-    onError: () => jsonError("file-too-large", 413),
-  }),
-);
 app.use("/api/*", async (c, next) => {
-  c.header("Cache-Control", "no-store");
-  c.header("X-Content-Type-Options", "nosniff");
-  c.header("Referrer-Policy", "no-referrer");
+  await next();
+  // Finalize the actual response, including early returns and onError responses.
+  c.res = protectApiResponse(c.res);
+});
+app.use("/api/*", async (c, next) => {
   if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
     const origin = c.req.header("Origin");
     const allowed = [c.env.APP_ORIGIN];
@@ -188,6 +180,10 @@ app.use("/api/*", async (c, next) => {
     if (!origin || !allowed.includes(origin))
       return jsonError("origin-not-allowed", 403);
   }
+  await next();
+});
+app.use("/api/*", boundedRequestBody);
+app.use("/api/*", async (c, next) => {
   let user: Viewer | null = null;
   const session = getCookie(c, "pm_session");
   if (session) {
@@ -343,9 +339,17 @@ app.patch("/api/preferences", async (c) => {
     .run();
   return c.json({ ok: true });
 });
-app.post("/api/calculate", async (c) =>
-  c.json(calculate(designSchema.parse(await c.req.json()))),
-);
+app.post("/api/calculate", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") || "local";
+  const client = await reserveRate(c.env.DB, `calculate-ip:${ip}`, 60, 60);
+  if (!client.allowed) return rateLimited(client.retryAfter);
+  const user = c.get("user");
+  if (user) {
+    const account = await reserveRate(c.env.DB, `calculate:${user.id}`, 60, 60);
+    if (!account.allowed) return rateLimited(account.retryAfter);
+  }
+  return c.json(calculate(designSchema.parse(await c.req.json())));
+});
 app.get("/api/cases", async (c) => {
   const user = c.get("user");
   const scope = c.req.query("scope") || "public";
@@ -411,6 +415,7 @@ app.post("/api/cases", async (c) => {
   const data = z
     .object({
       id: z.string().max(100).optional(),
+      expectedActor: z.string().min(1).max(100).optional(),
       expectedRevision: z.number().int().positive().optional(),
       name: z.string().trim().min(1).max(100),
       scope: z.enum(["public", "company", "private"]),
@@ -419,6 +424,11 @@ app.post("/api/cases", async (c) => {
     })
     .parse(await c.req.json());
   const user = c.get("user");
+  if (
+    data.expectedActor !== undefined &&
+    data.expectedActor !== (user?.id ?? "guest")
+  )
+    return jsonError("identity-conflict", 409);
   if (data.scope !== "public" && !user?.employee)
     return jsonError("employee-required", 403);
   if (
@@ -507,6 +517,12 @@ app.post("/api/cases", async (c) => {
   return c.json({ id: caseId, revisionId, number });
 });
 app.delete("/api/cases/:id", async (c) => {
+  const expectedActor = c.req.header("X-PowerMatch-Actor");
+  if (
+    expectedActor !== undefined &&
+    expectedActor !== (c.get("user")?.id ?? "guest")
+  )
+    return jsonError("identity-conflict", 409);
   const row = await c.env.DB.prepare("SELECT * FROM cases WHERE id=?")
     .bind(c.req.param("id"))
     .first<CaseRow>();
@@ -532,6 +548,15 @@ app.get("/api/components", async (c) => {
 app.post("/api/components", async (c) => {
   const user = c.get("user");
   if (!user) return jsonError("login-required", 401);
+  const account = await reserveRate(c.env.DB, `component:${user.id}`, 20, 3600);
+  if (!account.allowed) return rateLimited(account.retryAfter);
+  const client = await reserveRate(
+    c.env.DB,
+    `component-ip:${c.req.header("CF-Connecting-IP") || "local"}`,
+    60,
+    3600,
+  );
+  if (!client.allowed) return rateLimited(client.retryAfter);
   const data = z
     .object({
       name: z.string().trim().min(1).max(100),
