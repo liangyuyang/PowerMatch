@@ -1,69 +1,111 @@
 {
-  "checkedAt": "2026-09-12T14:19:23.234Z",
+  "checkedAt": "2026-10-21T00:46:50.980Z",
   "origin": "https://powermatch.zenmeasure.space",
   "result": "passed",
   "checks": [
     {
       "path": "/",
-      "status": 200
+      "status": 200,
+      "securityHeaders": true
+    },
+    {
+      "path": "/version.json",
+      "status": 200,
+      "securityHeaders": true,
+      "version": {
+        "version": "V0.1.29",
+        "revision": "33a2771",
+        "date": "2026.10.21"
+      }
     },
     {
       "path": "/api/health",
       "status": 200,
+      "securityHeaders": true,
+      "engineVersion": "0.1.1",
       "emailConfigured": true
     },
     {
       "path": "/api/cases?scope=public",
       "status": 200,
+      "securityHeaders": true,
       "count": 1
     },
     {
       "path": "/api/components",
       "status": 200,
+      "securityHeaders": true,
       "count": 41
     },
     {
       "path": "/api/admin",
-      "status": 403
+      "status": 403,
+      "securityHeaders": true
     },
     {
       "path": "/api/ai/models",
-      "status": 200
+      "status": 200,
+      "securityHeaders": true
     },
     {
       "path": "/api/admin/ai",
-      "status": 403
+      "status": 403,
+      "securityHeaders": true
     },
     {
       "path": "/api/admin/ai/usage",
-      "status": 403
+      "status": 403,
+      "securityHeaders": true
     },
     {
       "path": "/api/admin/ai/diagnostics",
-      "status": 403
+      "status": 403,
+      "securityHeaders": true
     },
     {
       "path": "/assets/zenmeasure-blue.png",
-      "status": 200
+      "status": 200,
+      "securityHeaders": true
     },
     {
       "path": "/assets/MOT-U125-body-white.png",
-      "status": 200
+      "status": 200,
+      "securityHeaders": true
     },
     {
       "path": "/assets/MOT-U125-body-proportional.png",
-      "status": 200
+      "status": 200,
+      "securityHeaders": true
     },
     {
       "path": "/assets/MHO-C404-body-white.png",
-      "status": 200
+      "status": 200,
+      "securityHeaders": true
     },
     {
       "path": "/api/calculate",
       "status": 200,
       "averageUa": 13.23529411764706,
       "runtimeHours": 75.41310857268991
+    },
+    {
+      "path": "/api/calculate",
+      "directIgnoresAbsentRegulator": true
+    },
+    {
+      "path": "/api/calculate",
+      "status": 403,
+      "error": "origin-not-allowed",
+      "securityHeaders": true
+    },
+    {
+      "path": "/api/calculate",
+      "status": 413,
+      "error": "request-too-large",
+      "securityHeaders": true
     }
   ],
-  "mail": "Provider accepted; user separately confirmed successful login and admin access. No email sent by this script."
+  "scope": "Anonymous read-only endpoints and bounded non-persistent calculation probes; no signed-in or real-provider acceptance in this run.",
+  "emailsSent": 0,
+  "liveAICalls": 0
 }
