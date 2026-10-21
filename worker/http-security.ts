@@ -2,9 +2,10 @@ import type { MiddlewareHandler } from "hono";
 import { hash } from "./security";
 
 // Keep this policy in sync with public/_headers (assets bypass the Worker).
-// React/Recharts use style attributes; scripts remain restricted to this origin.
+// React/Recharts use style attributes; scripts allow this origin and the existing
+// Cloudflare-injected performance beacon only (no inline/eval exceptions).
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+  "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 export function protectApiResponse(response: Response) {
   const headers = new Headers(response.headers);

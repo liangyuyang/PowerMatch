@@ -166,7 +166,7 @@ describe("API response security", () => {
     expect(headers).toContain("X-Frame-Options: DENY");
     expect(headers).toContain("X-Content-Type-Options: nosniff");
     expect(headers).toContain("Referrer-Policy: no-referrer");
-    expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self';");
+    expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self' https://static.cloudflareinsights.com;");
     expect(CONTENT_SECURITY_POLICY).toContain(
       "style-src 'self' 'unsafe-inline';",
     );

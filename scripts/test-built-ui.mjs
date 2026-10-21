@@ -1,7 +1,10 @@
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 
-// Exercise the production asset build through local Wrangler, including _headers.
+// Exercise the asset build locally, or the deployed site anonymously. Never save
+// cases, sign in, send mail or submit an AI request in this smoke test.
+const origin = process.env.PM_UI_ORIGIN ?? "http://127.0.0.1:8787";
+assert.ok(["http://127.0.0.1:8787", "https://powermatch.zenmeasure.space"].includes(origin));
 const browser = await chromium.launch({ headless: true, channel: "msedge" });
 try {
   const page = await browser.newPage({ locale: "zh-CN", viewport: { width: 1440, height: 1050 } });
@@ -12,8 +15,8 @@ try {
     document.addEventListener("securitypolicyviolation", (event) => window.__cspViolations.push({ directive: event.violatedDirective, blocked: event.blockedURI, source: event.sourceFile, sample: event.sample }));
     window.print = () => {};
   });
-  const response = await page.goto("http://127.0.0.1:8787");
-  assert.match(response.headers()["content-security-policy"], /script-src 'self';/);
+  const response = await page.goto(origin);
+  assert.ok(response.headers()["content-security-policy"].includes("script-src 'self' https://static.cloudflareinsights.com;"));
   await expect(page.getByRole("button", { name: "保存版本", exact: true })).toBeEnabled();
   await expect(page.locator(".recharts-surface").first()).toBeVisible();
   await page.getByRole("button", { name: "AI 设计助手", exact: true }).click();
@@ -32,5 +35,5 @@ try {
   await page.screenshot({ path: "tmp/phase1-local/built-mobile.png", fullPage: true });
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: "passed", checks: ["production asset CSP", "chart and AI lazy chunks", "branded print PDF", "mobile layout", "no CSP violations or page errors"], liveAI: false }));
+  console.log(JSON.stringify({ result: "passed", origin, checks: ["production asset CSP", "chart and AI lazy chunks", "branded print PDF", "mobile layout", "no CSP violations or page errors"], liveAI: false }));
 } finally { await browser.close(); }
