@@ -134,6 +134,10 @@ describe("API response security", () => {
     expect(etag).toMatch(/^"[a-f0-9]+"$/);
     const same=await request('/api/components',{headers:{'If-None-Match':etag}});
     expect(same.status).toBe(304);expect(await same.text()).toBe('');expectProtected(same);
+    for(const value of [`W/${etag}`, `"outdated", W/${etag}`, '*']) {
+      const compressed=await request('/api/components',{headers:{'If-None-Match':value}});
+      expect(compressed.status).toBe(304);expectProtected(compressed);
+    }
     sqlite.prepare("INSERT INTO components(id,name,category,manufacturer,parameters_json) VALUES('new','New','pv','Test','{}')").run();
     const changed=await request('/api/components',{headers:{'If-None-Match':etag}});
     expect(changed.status).toBe(200);expect(changed.headers.get('ETag')).not.toBe(etag);

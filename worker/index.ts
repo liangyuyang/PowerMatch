@@ -2,6 +2,7 @@ import { extractText } from "unpdf";
 import { extractCandidates } from "../src/shared/spec-parser";
 import { Hono } from "hono";
 import { decodeCaseCursor, encodeCaseCursor, type CaseCursor } from './case-pagination';
+import { matchesETag } from './http-cache';
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import {
   boundedRequestBody,
@@ -555,7 +556,7 @@ app.get("/api/components", async (c) => {
   });
   const etag=`"${await hash(body)}"`;
   c.header('ETag',etag);
-  if(c.req.header('If-None-Match')===etag) return c.body(null,304);
+  if(matchesETag(c.req.header('If-None-Match'),etag)) return c.body(null,304);
   return c.body(body,200,{'Content-Type':'application/json; charset=utf-8'});
 });
 app.post("/api/components", async (c) => {
