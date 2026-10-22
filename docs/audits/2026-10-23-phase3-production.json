@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-10-22T22:02:47.000Z",
+  "origin": "https://powermatch.zenmeasure.space",
+  "version": {
+    "version": "V0.1.34",
+    "revision": "ba3168a",
+    "date": "2026.10.23"
+  },
+  "workerVersion": "0b875734-f177-4203-825a-d53a4f3b712e",
+  "result": "passed",
+  "checks": [
+    "41 catalog components with version references",
+    "immutable baseline evidence resolves and matches parameters",
+    "weak ETag 304",
+    "recovery GET/POST denies anonymous",
+    "calculation worker served with immutable cache",
+    "live version matches committed build"
+  ],
+  "postMigrationCounts": {
+    "components": 41,
+    "componentVersions": 41,
+    "specs": 0,
+    "specReviews": 0,
+    "revisions": 2,
+    "unversionedComponents": 0
+  },
+  "productionBusinessWrites": 0,
+  "realAI": false,
+  "realEmail": false,
+  "ci": "https://github.com/liangyuyang/PowerMatch/actions/runs/39861624393"
+}
