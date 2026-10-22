@@ -1,0 +1,12 @@
+{
+  "origin": "http://127.0.0.1:5173",
+  "checks": [
+    "Real module worker settles under development React StrictMode",
+    "Rapid A to B edits cancel obsolete work; current save, PDF, JSON and AI remain fenced until B is ready",
+    "Exported inputs match the finished 365-day result and unchanged deterministic engine",
+    "Metadata edits reuse cached results; worker failure preserves inputs, settles error and supports retry",
+    "Comparison print includes three complete results and freezes design/conditions/evidence across later draft edits",
+    "Bundled catalog LIC without version metadata remains a valid calculable/saveable design after template merge"
+  ],
+  "errors": []
+}

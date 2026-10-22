@@ -10,6 +10,7 @@ import {
 } from "../src/shared/ai-config";
 import { readPrices } from "./ai-pricing";
 import { sealSecret } from "./ai-secrets";
+import { aiRecoveryStats, recoverExpiredAIInvocations } from "./ai-recovery";
 type App = Hono<{
   Bindings: Env;
   Variables: { user: Viewer | null; guestHash: string };
@@ -49,6 +50,18 @@ export function registerAIAdmin(
     id?: string,
   ) => Promise<string | undefined>,
 ) {
+  app.get("/api/admin/ai/recovery", async (c) => {
+    if (!c.get("user")?.admin) return err("admin-required", 403);
+    return c.json({ stats: await aiRecoveryStats(c.env.DB), automaticRetry: false });
+  });
+  app.post("/api/admin/ai/recovery", async (c) => {
+    const user = c.get("user");
+    if (!user?.admin) return err("admin-required", 403);
+    const result = await recoverExpiredAIInvocations(c.env.DB);
+    await c.env.DB.prepare("INSERT INTO audit(id,actor_id,action,target_id,detail) VALUES(?,?,?,?,?)")
+      .bind(crypto.randomUUID(), user.id, "ai-recovery", "powermatch", `closed-without-retry:${result.recovered}`).run();
+    return c.json(result);
+  });
   app.post("/api/admin/ai/prices", async (c) => {
     if (!c.get("user")?.admin) return err("admin-required", 403);
     const data = z
@@ -264,7 +277,7 @@ export function registerAIAdmin(
       /* Report status only, no provider payload. */
     }
     const ai = await c.env.DB.prepare(
-      "SELECT COUNT(*) calls,SUM(status='failed') failures,SUM(status='pending') pending,SUM(status='pending' AND created_at<datetime('now','-5 minutes')) stale FROM ai_invocations WHERE created_at>=datetime('now','-90 days')",
+      "SELECT COUNT(*) calls,SUM(status='failed') failures,SUM(status='pending') pending,SUM(status='pending' AND lease_expires_at<=CURRENT_TIMESTAMP) stale,SUM(recovery_state IS NOT NULL) recovered FROM ai_invocations WHERE created_at>=datetime('now','-90 days')",
     ).first();
     const mail = await c.env.DB.prepare(
       "SELECT state,COUNT(*) count FROM mail_outbox GROUP BY state",
@@ -281,6 +294,7 @@ export function registerAIAdmin(
       encryption: !!c.env.POWERMATCH_AI_ENCRYPTION_KEY,
       email: !!c.env.RESEND_API_KEY,
       ai,
+      aiRecovery: await aiRecoveryStats(c.env.DB),
       mail: mail.results,
       recent: recent.results,
     });

@@ -95,6 +95,10 @@ const errors: Record<string, string> = {
   "missing-key": "请先配置该提供商的密钥。",
   "health-check-required": "先保存配置，完成健康检查，再启用模型。",
   "ai-rate-limited": "调用过于频繁或已达到今日额度，请稍后再试。",
+  "ai-request-in-progress": "此请求已接收，正在处理，未重复调用供应商。",
+  "ai-result-unavailable": "此请求已处理，未重复计费。原建议未缓存；主动发起新请求可能再次计费。",
+  "ai-request-id-conflict": "请求编号与原内容不一致，请刷新后重新提交。",
+  "ai-lease-expired": "调用已超时关闭，设计未改变。供应商可能已计费，请先核对用量。",
   "locked-parameters":
     "建议涉及锁定参数，未应用任何修改。请让助手保留这些参数后重试。",
   "model-unavailable": "该模型暂不可用，请刷新模型列表。",
@@ -191,7 +195,7 @@ export function AIAssistant({
     const snapshot = structuredClone(design),
       text = message.trim(),
       epoch = identityEpoch.current;
-    if (!text || busy) return;
+    if (!text || busy || pendingRequest.current) return;
     setBusy(true);
     setError("");
     setErrorDiagnostic(null);
@@ -202,6 +206,7 @@ export function AIAssistant({
     const timer = window.setTimeout(() => controller.abort(), 65000);
     try {
       const x = await request("/ai/assist", {
+        requestId: crypto.randomUUID(),
         design: snapshot,
         modelId: model,
         locale,
@@ -220,7 +225,7 @@ export function AIAssistant({
     } catch (e) {
       if (epoch === identityEpoch.current) {
         setError(e instanceof DOMException && e.name === "AbortError"
-          ? bi("请求已取消或超时，设计未改变。", "Request canceled or timed out. Design unchanged.")
+          ? bi("请求已取消或超时，设计未改变。供应商可能仍在处理；再次提交可能再次计费。", "Request canceled or timed out. Design unchanged. The provider may still process it; a new submission may be billed again.")
           : errorText(e, zh));
         setErrorDiagnostic(e instanceof AssistantRequestError ? e.diagnostic : null);
       }

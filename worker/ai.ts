@@ -33,6 +33,8 @@ import {
   type AIDiagnostic,
 } from "../src/shared/ai-diagnostic";
 import { registerAIAdmin } from "./ai-admin";
+import { AI_IN_FLIGHT_LIMITS, AI_LEASE_SECONDS, expiredAIDiagnostic, recoverExpiredAIInvocations } from "./ai-recovery";
+import { hash } from "./security";
 export { modelConfigSchema, providers } from "../src/shared/ai-config";
 
 type Config = z.infer<typeof modelConfigSchema>;
@@ -102,6 +104,7 @@ export async function providerCall(
   config: Config,
   key: string,
   messages: { role: string; content: string }[],
+  recordUsage?: (usage: { input: number | null; output: number | null }, accepted: boolean) => Promise<void>,
 ) {
   if (
     config.provider === "mimo" &&
@@ -213,6 +216,19 @@ export async function providerCall(
         "检查 Base URL 是否指向 API 接口；供应商可能返回空响应或网页。",
     });
   }
+  // Preserve supplied usage before any HTTP/business/content validation rejects
+  // the response. A malformed envelope has no reliably extractable usage.
+  const token = (x: unknown) =>
+    typeof x === "number" && Number.isSafeInteger(x) && x >= 0 ? x : null;
+  const usage = {
+    input: token(nativeGemini ? data?.usageMetadata?.promptTokenCount : data?.usage?.prompt_tokens),
+    output: nativeGemini
+      ? token(typeof data?.usageMetadata?.candidatesTokenCount === "number"
+          ? data.usageMetadata.candidatesTokenCount + (data.usageMetadata.thoughtsTokenCount ?? 0)
+          : null)
+      : token(data?.usage?.completion_tokens),
+  };
+  await recordUsage?.(usage, response.ok && !data?.base_resp?.status_code);
   if (!response.ok)
     throw new AIRequestError(
       httpDiagnostic(
@@ -223,7 +239,7 @@ export async function providerCall(
         key,
       ),
     );
-  if (data.base_resp?.status_code)
+  if (data?.base_resp?.status_code)
     throw new AIRequestError({
       ...httpDiagnostic(
         response.status,
@@ -234,16 +250,16 @@ export async function providerCall(
       code: "provider-rejected",
     });
   const content = nativeGemini
-    ? data.candidates?.[0]?.content?.parts
+    ? data?.candidates?.[0]?.content?.parts
         ?.filter((p: any) => !p.thought)
         .map((p: any) => p.text ?? "")
         .join("")
-    : data.choices?.[0]?.message?.content;
+    : data?.choices?.[0]?.message?.content;
   if (
     typeof content !== "string" ||
     content.length > 30000 ||
-    data.choices?.[0]?.finish_reason === "length" ||
-    data.candidates?.[0]?.finishReason === "MAX_TOKENS"
+    data?.choices?.[0]?.finish_reason === "length" ||
+    data?.candidates?.[0]?.finishReason === "MAX_TOKENS"
   )
     throw new AIRequestError({
       code: "provider-invalid-response",
@@ -272,22 +288,9 @@ export async function providerCall(
       suggestion: "模型未遵守 JSON 输出约束；重试或切换模型。",
     });
   }
-  const token = (x: unknown) =>
-    typeof x === "number" && Number.isSafeInteger(x) && x >= 0 ? x : null;
   return {
     parsed,
-    input: token(
-      nativeGemini
-        ? data.usageMetadata?.promptTokenCount
-        : data.usage?.prompt_tokens,
-    ),
-    output: token(
-      nativeGemini &&
-        typeof data.usageMetadata?.candidatesTokenCount === "number"
-        ? data.usageMetadata.candidatesTokenCount +
-            (data.usageMetadata.thoughtsTokenCount ?? 0)
-        : data.usage?.completion_tokens,
-    ),
+    ...usage,
   };
 }
 function safeError(e: unknown) {
@@ -300,24 +303,42 @@ function safeError(e: unknown) {
       ? "invalid-ai-proposal"
       : "ai-request-failed";
 }
-async function invoke(
+export async function invoke(
   env: Env,
   user: Viewer,
   row: Row,
   purpose: string,
   messages: { role: string; content: string }[],
   consume: (x: unknown) => unknown,
+  request?: { requestId: string; requestHash: string },
 ) {
   const cfg = configOf(row);
+  // Reconcile expired attempts on new authenticated activity; never re-send them.
+  await recoverExpiredAIInvocations(env.DB,false);
   const invocation = crypto.randomUUID(),
     start = Date.now();
+  const leaseToken = crypto.randomUUID();
+  const billing = await env.DB.prepare(
+    "SELECT settings_json FROM ai_settings WHERE id=1",
+  ).first<{ settings_json: string }>();
+  const usdToCny = JSON.parse(billing!.settings_json).usdToCny;
+  const priceSnapshot = JSON.stringify({
+    inputPrice: cfg.inputPrice, outputPrice: cfg.outputPrice,
+    requestPrice: cfg.requestPrice, billingMode: cfg.billingMode,
+    currency: cfg.currency, usdToCny,
+    planFee: cfg.planFee, planPeriod: cfg.planPeriod,
+    priceSource: cfg.priceSource, priceNote: cfg.priceNote,
+  });
   // A single SQL write reserves budget, including concurrent requests and failed calls.
   const reservation = await env.DB.prepare(
-    `INSERT INTO ai_invocations(id,user_id,model_id,model_name,provider,purpose,currency)
-    SELECT ?,?,?,?,?,?,? WHERE
+    `INSERT INTO ai_invocations(id,user_id,model_id,model_name,provider,purpose,currency,price_snapshot,lease_token,lease_expires_at,request_id,request_hash)
+    SELECT ?,?,?,?,?,?,?,?,?,datetime('now',?),?,? WHERE
     (SELECT COUNT(*) FROM ai_invocations WHERE created_at >= datetime('now','+8 hours','start of day','-8 hours')) < 500
     AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','+8 hours','start of day','-8 hours')) < ?
-    AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','-1 minute')) < ? RETURNING id`,
+    AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','-1 minute')) < ?
+    AND (SELECT COUNT(*) FROM ai_invocations WHERE status='pending' AND lease_expires_at>CURRENT_TIMESTAMP) < ?
+    AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND status='pending' AND lease_expires_at>CURRENT_TIMESTAMP) < ?
+    AND NOT EXISTS(SELECT 1 FROM ai_invocations WHERE user_id=? AND request_id=?) RETURNING id`,
   )
     .bind(
       invocation,
@@ -327,13 +348,37 @@ async function invoke(
       cfg.provider,
       purpose,
       cfg.currency,
+      priceSnapshot,
+      leaseToken,
+      `+${AI_LEASE_SECONDS} seconds`,
+      request?.requestId ?? null,
+      request?.requestHash ?? null,
       user.id,
       user.employee ? 80 : 10,
       user.id,
       user.admin && purpose === "health" ? 40 : 4,
+      AI_IN_FLIGHT_LIMITS.total,
+      user.id,
+      AI_IN_FLIGHT_LIMITS.user,
+      user.id,
+      request?.requestId ?? null,
     )
     .first();
-  if (!reservation) return { error: "ai-rate-limited", status: 429 };
+  if (!reservation) {
+    const duplicate = request && await env.DB.prepare(
+      "SELECT id,status,request_hash,model_id,purpose FROM ai_invocations WHERE user_id=? AND request_id=?",
+    ).bind(user.id, request.requestId).first<{ id: string; status: string; request_hash: string; model_id: string; purpose: string }>();
+    if (duplicate) {
+      const conflict = duplicate.request_hash !== request!.requestHash || duplicate.model_id !== row.id || duplicate.purpose !== purpose;
+      const error = conflict ? "ai-request-id-conflict" : duplicate.status === "pending" ? "ai-request-in-progress" : "ai-result-unavailable";
+      return { error, status: 409, diagnostic: {
+        code: error, stage: "reservation", invocationId: duplicate.id,
+        message: conflict ? "同一请求编号不能用于不同的调用内容。" : "该请求编号已被接收，未重复调用供应商。",
+        suggestion: duplicate.status === "pending" ? "请等待原调用结束；超时后由管理员检查。" : "此处不缓存建议内容。核对原调用用量后，如需新建议请主动发起新请求，可能再次计费。",
+      } };
+    }
+    return { error: "ai-rate-limited", status: 429 };
+  }
   let input: number | null = null,
     output: number | null = null,
     cost: number | null = null;
@@ -349,40 +394,34 @@ async function invoke(
           "请填写并保存此模型的 API Key；若更换了接口地址，需要重新输入密钥。",
       });
     stage = "storage";
-    const billing = await env.DB.prepare(
-      "SELECT settings_json FROM ai_settings WHERE id=1",
-    ).first<{ settings_json: string }>();
-    const usdToCny = JSON.parse(billing!.settings_json).usdToCny;
+    const started = await env.DB.prepare(
+      "UPDATE ai_invocations SET request_started_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND lease_token=? AND lease_expires_at>CURRENT_TIMESTAMP",
+    ).bind(invocation, leaseToken).run();
+    if (!started.meta.changes) throw new AIRequestError(expiredAIDiagnostic(invocation));
     stage = "request";
-    const response = await providerCall(cfg, key, messages);
-    stage = "storage";
-    input = response.input;
-    output = response.output;
-    cost = estimateCost(cfg, input, output);
-    await env.DB.prepare(
-      "UPDATE ai_invocations SET cost_cny=?,price_snapshot=? WHERE id=?",
-    )
-      .bind(
-        costCny(cost, cfg.currency, usdToCny),
-        JSON.stringify({
-          inputPrice: cfg.inputPrice,
-          outputPrice: cfg.outputPrice,
-          requestPrice: cfg.requestPrice,
-          billingMode: cfg.billingMode,
-          currency: cfg.currency,
-          usdToCny,
-        }),
-        invocation,
-      )
-      .run();
+    const response = await providerCall(cfg, key, messages, async (usage, accepted) => {
+      input = usage.input;
+      output = usage.output;
+      // A rejected response with no usage is not evidence of billable work.
+      cost = accepted || input !== null || output !== null ? estimateCost(cfg, input, output) : null;
+      stage = "storage";
+      // A late response may enrich accounting for its original attempt, but
+      // cannot revive an expired/recovered task or apply its business result.
+      const saved = await env.DB.prepare(
+        "UPDATE ai_invocations SET input_tokens=?,output_tokens=?,estimated_cost=?,cost_cny=? WHERE id=? AND lease_token=? AND (status='pending' OR recovery_state='closed-without-retry') RETURNING status,lease_expires_at>CURRENT_TIMESTAMP AS active",
+      ).bind(input, output, cost, costCny(cost, cfg.currency, usdToCny), invocation, leaseToken).first<{ status: string; active: number }>();
+      if (!saved || saved.status !== "pending" || !saved.active) throw new AIRequestError(expiredAIDiagnostic(invocation));
+      stage = "request";
+    });
     stage = "validate";
     const result = consume(response.parsed);
     stage = "storage";
-    await env.DB.prepare(
-      "UPDATE ai_invocations SET status='ok',input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=? WHERE id=?",
+    const completed = await env.DB.prepare(
+      "UPDATE ai_invocations SET status='ok',input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=?,completed_at=CURRENT_TIMESTAMP,lease_token=NULL WHERE id=? AND status='pending' AND lease_token=? AND lease_expires_at>CURRENT_TIMESTAMP",
     )
-      .bind(input, output, cost, Date.now() - start, invocation)
+      .bind(input, output, cost, Date.now() - start, invocation, leaseToken)
       .run();
+    if (!completed.meta.changes) throw new AIRequestError(expiredAIDiagnostic(invocation));
     return {
       result,
       usage: { input, output, cost, currency: cfg.currency },
@@ -405,19 +444,22 @@ async function invoke(
       invocationId: invocation,
       checkedAt: new Date().toISOString(),
     };
-    await env.DB.prepare(
-      "UPDATE ai_invocations SET status='failed',error_code=?,input_tokens=?,output_tokens=?,estimated_cost=?,latency_ms=?,diagnostic_json=? WHERE id=?",
+    const failed = await env.DB.prepare(
+      "UPDATE ai_invocations SET status='failed',error_code=?,input_tokens=?,output_tokens=?,estimated_cost=?,cost_cny=?,latency_ms=?,diagnostic_json=?,completed_at=CURRENT_TIMESTAMP,lease_token=NULL WHERE id=? AND status='pending' AND lease_token=? AND lease_expires_at>CURRENT_TIMESTAMP",
     )
       .bind(
         error,
         input,
         output,
         cost,
+        costCny(cost, cfg.currency, usdToCny),
         Date.now() - start,
         JSON.stringify(diagnostic),
         invocation,
+        leaseToken,
       )
       .run();
+    if (!failed.meta.changes) return { error: "ai-lease-expired", diagnostic: expiredAIDiagnostic(invocation), status: 409 };
     return { error, diagnostic, status: error === "missing-key" ? 503 : 502 };
   }
 }
@@ -497,7 +539,7 @@ export function registerAI(app: App) {
       usage: usage.results,
       providers,
       keyEntryReady: !!c.env.POWERMATCH_AI_ENCRYPTION_KEY,
-      limits: { companyDaily: 80, externalDaily: 10, totalDaily: 500 },
+      limits: { companyDaily: 80, externalDaily: 10, totalDaily: 500, inFlight: AI_IN_FLIGHT_LIMITS },
     });
   });
   app.post("/api/admin/ai/key", async (c) => {
@@ -608,6 +650,9 @@ export function registerAI(app: App) {
       (x) => z.object({ ok: z.literal(true) }).parse(x),
     );
     if (reply.status === 429) return err(reply.error!, 429);
+    // Recovery/lease ownership is operational state, not evidence that the
+    // model became unhealthy. A late callback must not change its health.
+    if (reply.error === "ai-lease-expired") return err(reply.error, 409, reply.diagnostic);
     const healthUpdate = await c.env.DB.prepare(
       "UPDATE ai_models SET health=?,is_default=CASE WHEN ?='ok' AND enabled=1 AND NOT EXISTS(SELECT 1 FROM ai_models WHERE is_default=1) THEN 1 ELSE is_default END,checked_at=CURRENT_TIMESTAMP,latency_ms=?,diagnostic_json=? WHERE id=? AND revision=?",
     )
@@ -631,6 +676,7 @@ export function registerAI(app: App) {
     if (!user) return err("login-required", 401);
     const data = z
       .object({
+        requestId: z.string().regex(/^[a-zA-Z0-9_-]{16,80}$/),
         design: designSchema,
         modelId: z.string().max(60),
         locale: z.enum(locales),
@@ -656,7 +702,7 @@ export function registerAI(app: App) {
       .first<Row>();
     if (!row) return err("model-unavailable", 503);
     const rows = await c.env.DB.prepare(
-      "SELECT id,name,category,manufacturer,source,description,parameters_json,official,verified FROM components WHERE official=1 OR verified=1 ORDER BY official DESC,id LIMIT 200",
+      "SELECT c.id,c.name,c.category,c.manufacturer,c.source,c.description,c.parameters_json,c.official,c.verified,c.adopted_spec,c.current_version AS version_id,v.created_at AS version_recorded_at,v.origin AS version_origin FROM components c LEFT JOIN component_versions v ON v.id=c.current_version WHERE c.official=1 OR c.verified=1 ORDER BY c.official DESC,c.id LIMIT 200",
     ).all<any>();
     const catalog: Component[] = rows.results.map((r) => ({
       id: r.id,
@@ -668,6 +714,10 @@ export function registerAI(app: App) {
       official: !!r.official,
       verified: !!r.verified,
       parameters: JSON.parse(r.parameters_json),
+      adopted_spec: r.adopted_spec,
+      version_id: r.version_id,
+      version_recorded_at: r.version_recorded_at,
+      version_origin: r.version_origin,
     })).filter(canUseComponent);
     const { trace, ...currentResult } = calculate(data.design);
     const system = `You are PowerMatch's engineering design assistant. Reply in ${data.locale}.
@@ -702,6 +752,7 @@ export function registerAI(app: App) {
         const { trace, ...result } = calculate(proposal.design);
         return { ...proposal, result, before: currentResult };
       },
+      { requestId: data.requestId, requestHash: await hash(JSON.stringify({ ...data, requestId: undefined })) },
     );
     return reply.error
       ? err(reply.error, reply.status, reply.diagnostic)

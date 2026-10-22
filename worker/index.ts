@@ -3,6 +3,8 @@ import { extractCandidates } from "../src/shared/spec-parser";
 import { Hono } from "hono";
 import { decodeCaseCursor, encodeCaseCursor, type CaseCursor } from './case-pagination';
 import { matchesETag } from './http-cache';
+import { pinComponentEvidence } from './component-evidence';
+import { recoverExpiredAIInvocations } from './ai-recovery';
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import {
   boundedRequestBody,
@@ -74,6 +76,7 @@ type SpecRow = {
   bytes: number;
   status: string;
   proposed_json: string;
+  review_revision: number;
 };
 const app = new Hono<{
   Bindings: Env;
@@ -470,6 +473,12 @@ app.post("/api/cases", async (c) => {
       return jsonError("not-found", 404);
   }
   const caseId = data.id || id();
+  let pinnedDesign;
+  try { pinnedDesign=await pinComponentEvidence(c.env.DB,data.design); }
+  catch(e) {
+    if(e instanceof Error && e.message==='component-version-mismatch') return jsonError(e.message,400);
+    throw e;
+  }
   const revisionId = id();
   let number = 1;
   if (data.id) {
@@ -489,7 +498,7 @@ app.post("/api/cases", async (c) => {
       ).bind(
         revisionId,
         number,
-        JSON.stringify(data.design),
+        JSON.stringify(pinnedDesign),
         ENGINE_VERSION,
         data.parentRevision || null,
         data.scope,
@@ -517,7 +526,7 @@ app.post("/api/cases", async (c) => {
       ).bind(
         revisionId,
         caseId,
-        JSON.stringify(data.design),
+        JSON.stringify(pinnedDesign),
         ENGINE_VERSION,
         data.parentRevision || null,
         data.scope,
@@ -545,7 +554,7 @@ app.delete("/api/cases/:id", async (c) => {
 });
 app.get("/api/components", async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT c.id,c.name,c.category,c.manufacturer,c.source,c.description,c.parameters_json,c.official,c.verified,c.adopted_spec,u.display_name AS author_name,u.id AS author_id FROM components c LEFT JOIN users u ON u.id=c.owner_id ORDER BY c.official DESC,c.category,c.name",
+    "SELECT c.id,c.name,c.category,c.manufacturer,c.source,c.description,c.parameters_json,c.official,c.verified,c.adopted_spec,c.current_version AS version_id,v.created_at AS version_recorded_at,v.origin AS version_origin,u.display_name AS author_name,u.id AS author_id FROM components c LEFT JOIN users u ON u.id=c.owner_id LEFT JOIN component_versions v ON v.id=c.current_version ORDER BY c.official DESC,c.category,c.name",
   ).all<{ parameters_json: string }>();
   const body=JSON.stringify({
     components: rows.results.map((r) => ({
@@ -558,6 +567,11 @@ app.get("/api/components", async (c) => {
   c.header('ETag',etag);
   if(matchesETag(c.req.header('If-None-Match'),etag)) return c.body(null,304);
   return c.body(body,200,{'Content-Type':'application/json; charset=utf-8'});
+});
+app.get('/api/components/:id/versions/:version',async(c)=>{
+  const version=await c.env.DB.prepare('SELECT id,component_id,snapshot_json,created_at,origin FROM component_versions WHERE id=? AND component_id=?')
+    .bind(c.req.param('version'),c.req.param('id')).first<{snapshot_json:string}>();
+  return version?c.json({...version,snapshot:JSON.parse(version.snapshot_json),snapshot_json:undefined}):jsonError('not-found',404);
 });
 app.post("/api/components", async (c) => {
   const user = c.get("user");
@@ -585,8 +599,9 @@ app.post("/api/components", async (c) => {
     })
     .parse(await c.req.json());
   const key = id();
-  await c.env.DB.prepare(
-    "INSERT INTO components(id,name,category,manufacturer,source,description,parameters_json,owner_id) VALUES(?,?,?,?,?,?,?,?)",
+  const versionId=id();
+  await c.env.DB.batch([c.env.DB.prepare(
+    "INSERT INTO components(id,name,category,manufacturer,source,description,parameters_json,owner_id,current_version) VALUES(?,?,?,?,?,?,?,?,?)",
   )
     .bind(
       key,
@@ -597,8 +612,9 @@ app.post("/api/components", async (c) => {
       data.description,
       JSON.stringify(data.parameters),
       user.id,
-    )
-    .run();
+      versionId,
+    ),c.env.DB.prepare('INSERT INTO component_versions(id,component_id,snapshot_json,origin) VALUES(?,?,?,?)')
+      .bind(versionId,key,JSON.stringify({id:key,name:data.name,manufacturer:data.manufacturer,source:data.source,parameters:data.parameters,adoptedSpec:null}),'component-created')]);
   return c.json({ id: key });
 });
 app.post("/api/specs/extract", async (c) => {
@@ -626,7 +642,7 @@ app.post("/api/specs/extract", async (c) => {
 });
 app.get("/api/components/:id/specs", async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT s.id,s.filename,s.mime,s.sha256,s.bytes,s.status,s.proposed_json,s.review_note,s.created_at,u.display_name AS author_name,u.id AS author_id FROM specs s JOIN users u ON u.id=s.uploader_id WHERE s.component_id=? ORDER BY s.created_at DESC",
+    "SELECT s.id,s.filename,s.mime,s.sha256,s.bytes,s.status,s.proposed_json,s.review_note,s.review_revision,r.parameters_json AS reviewed_json,s.created_at,u.display_name AS author_name,u.id AS author_id FROM specs s JOIN users u ON u.id=s.uploader_id LEFT JOIN spec_reviews r ON r.spec_id=s.id AND r.revision=s.review_revision WHERE s.component_id=? ORDER BY s.created_at DESC",
   )
     .bind(c.req.param("id"))
     .all();
@@ -677,7 +693,7 @@ app.post("/api/components/:id/specs", async (c) => {
   await c.env.SPECS.put(r2Key, bytes, {
     httpMetadata: { contentType: file.type },
   });
-  await c.env.DB.prepare(
+  try { await c.env.DB.prepare(
     "INSERT INTO specs(id,component_id,uploader_id,filename,mime,r2_key,sha256,bytes,proposed_json) VALUES(?,?,?,?,?,?,?,?,?)",
   )
     .bind(
@@ -691,7 +707,16 @@ app.post("/api/components/:id/specs", async (c) => {
       file.size,
       JSON.stringify(proposed),
     )
-    .run();
+    .run(); } catch(error) {
+      // Read back an uncertain commit before deleting this request's unique object.
+      const committed=await c.env.DB.prepare('SELECT id FROM specs WHERE id=?').bind(key).first();
+      if(committed) return c.json({id:key,status:'submitted'});
+      await c.env.SPECS.delete(r2Key);
+      const duplicate=await c.env.DB.prepare('SELECT id FROM specs WHERE component_id=? AND sha256=?')
+        .bind(c.req.param('id'),sha).first();
+      if(duplicate) return jsonError('duplicate-spec',409);
+      throw error;
+    }
   return c.json({ id: key, status: "submitted" });
 });
 app.get("/api/specs/:id/file", async (c) => {
@@ -718,32 +743,54 @@ app.post("/api/specs/:id/review", async (c) => {
       action: z.enum(["adopt", "reject"]),
       note: z.string().trim().min(1).max(1000),
       parameters: paramSchema,
+      expectedRevision: z.number().int().nonnegative(),
+      expectedComponentVersion: z.string().max(160).nullable().optional(),
     })
     .parse(await c.req.json());
   const row = await c.env.DB.prepare("SELECT * FROM specs WHERE id=?")
     .bind(c.req.param("id"))
     .first<SpecRow>();
   if (!row) return jsonError("not-found", 404);
+  if(row.review_revision!==data.expectedRevision) return jsonError('spec-review-conflict',409);
+  const component=await c.env.DB.prepare('SELECT current_version FROM components WHERE id=?')
+    .bind(row.component_id).first<{current_version:string|null}>();
+  if(data.action==='adopt' && (data.expectedComponentVersion===undefined || component?.current_version!==data.expectedComponentVersion))
+    return jsonError('component-version-conflict',409);
+  const reviewId=id(),versionId=id();
   const statements = [
     c.env.DB.prepare(
-      "UPDATE specs SET status=?,review_note=?,reviewer_id=?,proposed_json=? WHERE id=?",
+      `INSERT INTO spec_reviews(id,spec_id,revision,action,parameters_json,note,reviewer_id)
+       SELECT ?,s.id,s.review_revision+1,?,?,?,? FROM specs s JOIN components c ON c.id=s.component_id
+       WHERE s.id=? AND s.review_revision=? AND (?='reject' OR c.current_version IS ?)`,
     ).bind(
-      data.action === "adopt" ? "adopted" : "rejected",
-      data.note,
-      user.id,
-      JSON.stringify(data.parameters),
-      row.id,
+      reviewId,data.action,JSON.stringify(data.parameters),data.note,user.id,row.id,data.expectedRevision,
+      data.action,data.expectedComponentVersion??null,
     ),
+    c.env.DB.prepare("UPDATE specs SET status=?,review_note=?,reviewer_id=?,review_revision=review_revision+1 WHERE id=? AND EXISTS(SELECT 1 FROM spec_reviews WHERE id=?)")
+      .bind(data.action==='adopt'?'adopted':'rejected',data.note,user.id,row.id,reviewId),
   ];
-  if (data.action === "adopt")
+  if (data.action === "adopt") {
+    statements.push(c.env.DB.prepare(`INSERT INTO component_versions(id,component_id,snapshot_json,origin)
+      SELECT ?,id,json_object('id',id,'name',name,'manufacturer',manufacturer,'source',source,
+      'parameters',json(?),'adoptedSpec',?,'specSha256',?,'specFilename',?,
+      'reviewId',?,'reviewRevision',?),'spec-review:'||? FROM components
+      WHERE id=? AND EXISTS(SELECT 1 FROM spec_reviews WHERE id=?)`)
+      .bind(versionId,JSON.stringify(data.parameters),row.id,row.sha256,row.filename,reviewId,data.expectedRevision+1,reviewId,row.component_id,reviewId));
     statements.push(
       c.env.DB.prepare(
-        "UPDATE components SET parameters_json=?,adopted_spec=?,verified=1 WHERE id=?",
-      ).bind(JSON.stringify(data.parameters), row.id, row.component_id),
+        "UPDATE components SET parameters_json=?,adopted_spec=?,verified=1,current_version=? WHERE id=? AND EXISTS(SELECT 1 FROM spec_reviews WHERE id=?)",
+      ).bind(JSON.stringify(data.parameters), row.id,versionId,row.component_id,reviewId),
     );
-  await c.env.DB.batch(statements);
+  }
+  const reviewed=await c.env.DB.batch(statements);
+  if(!reviewed[0].meta.changes) return jsonError('spec-review-conflict',409);
   await audit(c.env, user.id, `spec-${data.action}`, row.id, data.note);
-  return c.json({ ok: true });
+  return c.json({ ok: true,reviewRevision:data.expectedRevision+1,versionId:data.action==='adopt'?versionId:null });
+});
+app.get('/api/specs/:id/reviews',async(c)=>{
+  const reviews=await c.env.DB.prepare('SELECT id,revision,action,parameters_json,note,created_at FROM spec_reviews WHERE spec_id=? ORDER BY revision DESC LIMIT 100')
+    .bind(c.req.param('id')).all();
+  return c.json({reviews:reviews.results});
 });
 
 async function targetAllowed(
@@ -924,6 +971,7 @@ app.post("/api/messages", async (c) => {
 app.post("/api/admin/maintenance", async (c) => {
   const user = c.get("user");
   if (!user?.admin) return jsonError("admin-required", 403);
+  const aiRecovery=await recoverExpiredAIInvocations(c.env.DB);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM login_tokens WHERE expires_at<?").bind(now()),
     c.env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now()),
@@ -934,7 +982,7 @@ app.post("/api/admin/maintenance", async (c) => {
   ]);
   c.executionCtx.waitUntil(processMail(c.env));
   await audit(c.env, user.id, "maintenance", "powermatch");
-  return c.json({ ok: true });
+  return c.json({ ok: true, aiRecovery });
 });
 app.get("/api/admin", async (c) => {
   if (!c.get("user")?.admin) return jsonError("admin-required", 403);

@@ -98,6 +98,7 @@ beforeEach(() => {
       "utf8",
     ),
   );
+  sqlite.exec(readFileSync(new URL('../worker/migrations/0011_component_evidence.sql',import.meta.url),'utf8'));
   env = {
     DB: localD1(sqlite),
     APP_ORIGIN: origin,

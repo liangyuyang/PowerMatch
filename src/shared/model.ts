@@ -2,6 +2,15 @@ import { z } from "zod";
 const finite = (min: number, max: number) =>
   z.number().finite().min(min).max(max);
 const optional = (min: number, max: number) => finite(min, max).nullable();
+const componentGroups = ["pv", "storage", "regulation"] as const;
+export const componentEvidenceSchema = z.object({
+  id: z.string().max(100), name: z.string().max(100), manufacturer: z.string().max(100),
+  source: z.string().max(1000), parameters: z.record(z.string().max(80),z.union([z.string().max(500),z.number().finite(),z.null()])),
+  adoptedSpec: z.string().max(100).nullable(), versionId: z.string().max(160),
+  recordedAt: z.string().max(80), origin: z.string().max(80),
+  specSha256: z.string().max(64).nullable().optional(), specFilename:z.string().max(180).nullable().optional(),
+  reviewId:z.string().max(100).nullable().optional(),reviewRevision:z.number().int().nonnegative().nullable().optional(),
+});
 export const phaseSchema = z.object({
   name: z.string().trim().min(1).max(60),
   seconds: finite(0.001, 86400),
@@ -76,6 +85,8 @@ export const designSchema = z
     horizonDays: finite(1, 365).int(),
     margin: finite(0, 100),
     notes: z.string().max(5000),
+    componentVersions: z.partialRecord(z.enum(componentGroups), z.string().min(1).max(160)).optional(),
+    componentEvidence: z.partialRecord(z.enum(componentGroups), componentEvidenceSchema).optional(),
     parameterSources: z
       .record(
         z.string().max(100),
@@ -124,6 +135,9 @@ export interface Component {
   parameters: Record<string, number | string | null>;
   verified: boolean;
   adopted_spec?: string | null;
+  version_id?: string | null;
+  version_recorded_at?: string;
+  version_origin?: string;
 }
 export const DEFAULT_DESIGN: Design = {
   name: "穿山甲Tiny · 光伏改型",
@@ -228,6 +242,9 @@ export function changeStorage(
   kind: Design["storage"]["kind"],
 ): Design {
   const next = cloneDesign(d);
+  next.componentVersions={...next.componentVersions};next.componentEvidence={...next.componentEvidence};
+  delete next.componentVersions.storage;delete next.componentEvidence.storage;
+  if(kind!=='primary') {delete next.componentVersions.regulation;delete next.componentEvidence.regulation;}
   next.storage =
     kind === "primary"
       ? cloneDesign().storage
@@ -281,11 +298,14 @@ export function changeMode(d: Design, mode: Design["mode"]): Design {
   n.mode = mode;
   if (mode === "hybrid") return changeStorage(n, "lic");
   n.path = "ldo";
+  n.componentVersions={...n.componentVersions};n.componentEvidence={...n.componentEvidence};
+  delete n.componentVersions.regulation;delete n.componentEvidence.regulation;
   n.regulation = cloneDesign().regulation;
   n.parameterSources = { ...n.parameterSources };
   for (const key of Object.keys(n.regulation))
     n.parameterSources[`regulation.${key}`] = cloneDesign().parameterSources?.[`regulation.${key}`] ?? { kind: "assumption" };
   if (mode === "battery") {
+    delete n.componentVersions.storage;delete n.componentEvidence.storage;
     n.storage = cloneDesign().storage;
     for (const key of Object.keys(n.storage))
       n.parameterSources[`storage.${key}`] = cloneDesign().parameterSources?.[`storage.${key}`] ?? { kind: "assumption" };

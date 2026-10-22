@@ -36,13 +36,13 @@ import {
   type Component,
   type Locale,
 } from "./shared/model";
-import { calculate, darkCoverage, ENGINE_VERSION, type Result } from "./shared/engine";
+import { darkCoverage, ENGINE_VERSION, type Result } from "./shared/engine";
 import { CATALOG } from "./shared/catalog";
 import { t, explain, languageNames, type Word } from "./i18n";
 import "./style.css";
 const AIAssistant = React.lazy(() => import("./ai-ui").then((module) => ({ default: module.AIAssistant })));
 const AIAdmin = React.lazy(() => import("./model-settings").then((module) => ({ default: module.AIAdmin })));
-const EnergyChart = React.lazy(() => import("./energy-chart"));
+import DeferredEnergyChart from "./deferred-energy-chart";
 import { canUseComponent, selectComponent } from "./shared/assistant";
 import { checkDraftAccess, defaultDraftScope, draftKey, readDraft, writeDraft, type DraftAccess, type DraftCaseContext } from "./shared/draft";
 import { ComponentHover } from "./component-hover";
@@ -52,14 +52,11 @@ import { ComponentParameters } from "./component-parameters";
 import { parseParameters, parameterDisplay } from "./shared/component-parameters";
 import { readPage, pageUrl, caseUrl, type Page } from "./shared/navigation";
 import { uiText, parameterLabel } from "./ui-text";
+import { calculationKey } from "./calculation-client";
+import { useCalculations } from "./use-calculations";
 const fmt = (n: number, d = 2) => Number(n.toFixed(d)).toString();
 const currentText = (ua: number | null | undefined) =>
   ua == null ? "—" : Math.abs(ua) < 1 && ua !== 0 ? `${fmt(ua * 1000)} nA` : `${fmt(ua)} µA`;
-const calculationKey = (d: Design) => JSON.stringify({
-  device: d.device, load: d.load, mode: d.mode, path: d.path,
-  light: d.light, pv: d.pv, storage: d.storage, regulation: d.regulation,
-  horizonDays: d.horizonDays, margin: d.margin,
-});
 const human = (name: string) =>
   name ? name[0].toUpperCase() + name.slice(1) : "ZenMeasure";
 const date = (s: string) => s.slice(0, 10);
@@ -74,6 +71,7 @@ type CaseItem = {
   updated_at: string;
 };
 type Revision = {
+  engine_version?: string;
   id: string;
   number: number;
   design: Design;
@@ -251,7 +249,10 @@ function App() {
     [partMaker, setPartMaker] = useState(""),
     [partCategory, setPartCategory] = useState("battery"),
     [partSource, setPartSource] = useState("");
-  const resultCache = useRef(new Map<string, Result | null>());
+  const [reportData, setReportData] = useState<{
+    design: Design; result: Result; scope: Scope; sourceEngineVersion?: string;
+    locked: boolean; comparisons: {design: Design; result: Result}[]; flow: React.ReactNode;
+  } | null>(null);
   const [caseCursor,setCaseCursor] = useState<string|null>(null);
   const [partParams,setPartParams]=useState('{}');
   const pendingOps=useRef(0);
@@ -296,18 +297,20 @@ function App() {
     intent: current.canEdit ? "edit" : "copy", originalScope: current.originalScope,
   } : null;
   const canSaveDraft = sessionReady && !sessionUnavailable && !authPending && draftOwner === identity && draftAccess === "ready" && (scope === "public" || !!viewer?.employee);
-  const calculateCached = (design: Design) => {
-    const key = calculationKey(design);
-    if (resultCache.current.has(key)) return resultCache.current.get(key)!;
-    let value: Result | null = null;
-    try { value = calculate(design); } catch { /* invalid draft is shown by validation */ }
-    resultCache.current.set(key, value);
-    if (resultCache.current.size > 24)
-      resultCache.current.delete(resultCache.current.keys().next().value!);
-    return value;
-  };
   const valid = designSchema.safeParse(d);
-  const result = calculateCached(d);
+  const compareDesigns = [...snapshots, d].map(item => lockConditions
+    ? {...item, load: d.load, light: d.light, horizonDays: d.horizonDays, device: d.device} : item);
+  const comparisonActive = page === "compare";
+  const sourceEngineVersion = revisions.find(revision => revision.id === current?.parent)?.engine_version;
+  const requestedDesigns = valid.success ? [d, ...(comparisonActive ? compareDesigns.filter(design => designSchema.safeParse(design).success) : [])] : [];
+  const calculations = useCalculations(requestedDesigns);
+  const result = valid.success ? calculations.results[0] ?? null : null;
+  const readyResults = new Map<string, Result>();
+  requestedDesigns.forEach((design, index) => { const r = calculations.results[index]; if (r) readyResults.set(calculationKey(design), r); });
+  const comparisonReady = compareDesigns.every(design => readyResults.has(calculationKey(design)));
+  const calculationReady = valid.success && !!result;
+  const reportReady = calculationReady && (!comparisonActive || comparisonReady);
+  const calculating = valid.success && !result && !calculations.error;
   const run = async (fn: () => Promise<void>) => {
     ++pendingOps.current;
     setBusy(true);
@@ -620,13 +623,14 @@ function App() {
       </select>
     </label>
   );
-  const runtime = (r: Result | null, dark = false) =>
+  const runtime = (r: Result | null, dark = false, horizon = d.horizonDays) =>
     !r || r.status !== "conditional"
       ? "—"
       : (dark ? r.darkHours : r.runtimeHours) === null
-        ? `≥ ${d.horizonDays * 24} h`
+        ? `≥ ${horizon * 24} h`
         : `${fmt((dark ? r.darkHours : r.runtimeHours)!)} h`;
   const conclusion = (design: Design, r: Result | null) => {
+    if (!r && designSchema.safeParse(design).success && readyResults.get(calculationKey(design)) == null) return calculations.error ? bi("计算未完成，请重试。", "Calculation failed. Please retry.") : bi("正在计算当前输入…", "Calculating current inputs…");
     if (!r || r.status !== "conditional") return bi("参数待补或电路不兼容，暂不能判断续航。", "Missing parameters or incompatible circuit; runtime cannot be concluded yet.");
     const observed = r.runtimeHours === null
       ? bi(`模拟 ${design.horizonDays} 天内未断电；更长期仍需验证。`, `No outage in the ${design.horizonDays}-day simulation; longer operation is unverified.`)
@@ -728,6 +732,12 @@ function App() {
       if (["lic", "supercap", "rechargeable"].includes(c.category)) {
         const base = changeStorage({ ...n, mode: "hybrid" }, n.storage.kind);
         base.storage = n.storage;
+        base.componentVersions = {...base.componentVersions};
+        base.componentEvidence = {...base.componentEvidence};
+        if (n.componentVersions?.storage) base.componentVersions.storage = n.componentVersions.storage;
+        else delete base.componentVersions.storage;
+        if (n.componentEvidence?.storage) base.componentEvidence.storage = n.componentEvidence.storage;
+        else delete base.componentEvidence.storage;
         base.parameterSources = {
           ...base.parameterSources,
           ...Object.fromEntries(Object.entries(n.parameterSources ?? {}).filter(([key]) => key.startsWith("storage."))),
@@ -744,6 +754,7 @@ function App() {
     setPage("workbench");
   };
   const exportJson = () => {
+    if (!calculationReady) return;
     const blob = new Blob(
       [JSON.stringify({ format: "PowerMatch-0.1", design: d }, null, 2)],
       { type: "application/json" },
@@ -756,9 +767,14 @@ function App() {
     URL.revokeObjectURL(url);
   };
   const print = () => {
-    setReportCompare(page === "compare");
+    if (!reportReady || !result) return;
+    setReportData({design: cloneDesign(d), result, scope, flow, sourceEngineVersion, locked: lockConditions,
+      comparisons: comparisonActive ? compareDesigns.map(design => ({design: cloneDesign(design), result: readyResults.get(calculationKey(design))!})) : []});
+    setReportCompare(comparisonActive);
     setReport(true);
   };
+  const reportDesign = reportData?.design ?? d;
+  const reportResult = reportData?.result ?? null;
   useEffect(() => {
     if (!report) return;
     let active = true;
@@ -773,9 +789,7 @@ function App() {
   const chart = (r: Result | null, mode: Design["mode"]) => (
     <div className="chart">
       {r?.trace.length ? (
-        <React.Suspense fallback={<p className="caption">{bi("正在绘制曲线…", "Drawing chart…")}</p>}>
-          <EnergyChart result={r} mode={mode} locale={locale} />
-        </React.Suspense>
+        <DeferredEnergyChart result={r} mode={mode} locale={locale} />
       ) : (
         <div className="empty">
           <Warning size={28} />
@@ -819,7 +833,7 @@ function App() {
           ? `${d.storage.series}S${d.storage.parallel}P · ${["lic", "supercap"].includes(d.storage.kind) ? `${fmt(d.storage.farads ?? 0)} F` : `${fmt(d.storage.capacityMah ?? 0)} mAh`} · ${fmt(d.storage.minVoltage ?? 0)}–${fmt(d.storage.maxVoltage ?? 0)} V`
           : kind === "regulation"
             ? `${d.path.toUpperCase()} · MPPT ${d.regulation.mppt ? "✓" : "—"} · ${fmt((d.regulation.iqUa ?? 0) * 1000)} nA`
-            : `${d.device} · ${fmt(d.load.voltage)} V · ${fmt(result?.averageUa ?? 0)} µA`;
+            : `${d.device} · ${fmt(d.load.voltage)} V · ${result ? fmt(result.averageUa) : "—"} µA`;
     return (
       <ComponentHover
         locale={locale}
@@ -1024,7 +1038,7 @@ function App() {
           </div>
           {["workbench", "compare"].includes(page) && (
             <div className="toolbar" inert={!sessionReady || authPending || draftOwner !== identity}>
-              <button className="ai-launch" onClick={() => { setAiLoaded(true); setAiOpen(true); }}>
+              <button className="ai-launch" disabled={!calculationReady} onClick={() => { setAiLoaded(true); setAiOpen(true); }}>
                 <Chats />
                 {bi("AI 设计助手", "AI assistant")}
               </button>
@@ -1053,14 +1067,14 @@ function App() {
                 <Plus />
                 {tr("compare")}
               </button>
-              <button onClick={print}>
+              <button disabled={!reportReady} onClick={print}>
                 <Download />
                 {tr("report")}
               </button>
               <button
                 className="primary"
                 onClick={() => setModal("save")}
-                disabled={!valid.success || !sessionReady || authPending || draftOwner !== identity}
+                disabled={!calculationReady || !sessionReady || authPending || draftOwner !== identity}
               >
                 <FloppyDisk />
                 {tr("save")}
@@ -1068,6 +1082,14 @@ function App() {
             </div>
           )}
         </div>
+        {sourceEngineVersion && sourceEngineVersion !== ENGINE_VERSION && ["workbench", "compare"].includes(page) && <p className="notice">{bi(`打开的修订使用引擎 ${sourceEngineVersion}；保留原输入，当前结果由 ${ENGINE_VERSION} 重新计算。`, `The opened revision used engine ${sourceEngineVersion}. Original inputs are retained; current results are recalculated by ${ENGINE_VERSION}.`)}</p>}
+        {["workbench", "compare"].includes(page) && valid.success && calculations.pending && <div className="notice calculation-status" role="status" data-calculation="pending">
+          {calculationReady ? bi("正在后台计算对比方案；全部完成后可导出对比报告。", "Calculating comparison designs in the background; the comparison report is available when all are ready.") : bi("正在后台计算当前输入；完成后可保存、导出或使用 AI。", "Calculating current inputs in the background; saving, export and AI are available when ready.")}
+        </div>}
+        {["workbench", "compare"].includes(page) && calculations.error && <div className="notice calculation-status" role="alert" data-calculation="error">
+          <span>{calculationReady ? bi("部分对比方案未完成计算。输入已保留，请重试后导出对比报告。", "Some comparison calculations did not finish. Inputs are preserved. Retry before exporting the comparison report.") : bi("后台计算未完成。输入已保留，请重试；当前结果不可用于保存或导出。", "Background calculation did not finish. Inputs are preserved. Retry before saving or exporting current results.")}</span>
+          <button onClick={calculations.retry}>{bi("重试计算", "Retry calculation")}</button>
+        </div>}
         {notice && (
           <div role="status" className="notice">
             {notice}
@@ -1125,7 +1147,7 @@ function App() {
                 : bi("访客草稿保存在本浏览器；清除浏览器数据会移除它。", "Guest drafts stay in this browser and disappear if its data is cleared.")}
             </p>
             <div className="mobile-summary panel">
-              <div><strong>{result ? tr(result.status) : tr("incomplete")}</strong><span>{conclusion(d, result)}</span></div>
+              <div><strong>{calculating ? bi("正在计算…", "Calculating…") : result ? tr(result.status) : tr("incomplete")}</strong><span>{conclusion(d, result)}</span></div>
               <a href="#supply-inputs">{bi("调整方案", "Edit design")} ↓</a>
               <a href="#design-results">{bi("查看结果", "View results")} ↓</a>
             </div>
@@ -1265,7 +1287,7 @@ function App() {
                 <div className="mini-result">
                   {tr("average")}
                   <strong>
-                    {fmt(result?.averageUa ?? 0)} <small>µA</small>
+                    {result ? fmt(result.averageUa) : "—"} <small>µA</small>
                   </strong>
                 </div>
                 <details>
@@ -1431,9 +1453,7 @@ function App() {
                         )}
                         value={d.pv.componentId}
                         onChange={(e) => {
-                          const c = CATALOG.find(
-                            (c) => c.id === e.target.value,
-                          );
+                          const c = components.find(c => c.id === e.target.value) ?? CATALOG.find(c => c.id === e.target.value);
                           if (c) applyPreset(selectComponent(d, c));
                         }}
                       >
@@ -1559,13 +1579,17 @@ function App() {
                     (v) => {
                       const next = cloneDesign(d);
                       if (v === "converter") {
-                        const template = CATALOG.find((c) => c.id === "assumed-harvester-regulator")!;
+                        const template = components.find(c => c.id === "assumed-harvester-regulator") ?? CATALOG.find(c => c.id === "assumed-harvester-regulator")!;
                         applyPreset(selectComponent(next, template));
                       } else {
                         next.path = v as Design["path"];
                         next.regulation = v === "ldo"
                           ? cloneDesign().regulation
                           : { ...next.regulation, componentId: "direct", iqUa: 0, mppt: false, charger: false };
+                        next.componentVersions = {...next.componentVersions};
+                        next.componentEvidence = {...next.componentEvidence};
+                        delete next.componentVersions.regulation;
+                        delete next.componentEvidence.regulation;
                         next.parameterSources = { ...next.parameterSources };
                         for (const key of Object.keys(next.regulation))
                           next.parameterSources[`regulation.${key}`] = v === "ldo"
@@ -1638,7 +1662,7 @@ function App() {
                 <h2>03 · {tr("results")}</h2>
                 <div className={"status " + (result?.status ?? "incomplete")}>
                   <Warning />
-                  {result ? tr(result.status) : tr("incomplete")}
+                  {calculating ? bi("正在计算…", "Calculating…") : result ? tr(result.status) : tr("incomplete")}
                 </div>
                 <div className="hero-metric">
                   <span>{tr("runtime")}</span>
@@ -1744,7 +1768,7 @@ function App() {
                   (v) => setD({ ...d, margin: v ?? 0 }),
                   20,
                 )}
-                <button onClick={exportJson}>
+                <button disabled={!calculationReady} onClick={exportJson}>
                   <Download /> JSON
                 </button>
                 {current && (
@@ -1806,25 +1830,13 @@ function App() {
                 )}
               </label>
               <span>
-                {fmt(result?.averageUa ?? 0)} µA · {d.load.voltage} V ·{" "}
+                {result ? fmt(result.averageUa) : "—"} µA · {d.load.voltage} V ·{" "}
                 {d.light.lux} lux · {d.light.days} × {d.light.hours} h
               </span>
             </div>
             <div className="compare-grid">
-              {[...snapshots, d]
-                .map((item) =>
-                  lockConditions
-                    ? {
-                        ...item,
-                        load: d.load,
-                        light: d.light,
-                        horizonDays: d.horizonDays,
-                        device: d.device,
-                      }
-                    : item,
-                )
-                .map((design, i) => {
-                  const r = calculateCached(design);
+              {compareDesigns.map((design, i) => {
+                  const r = readyResults.get(calculationKey(design)) ?? null;
                   return (
                     <article className="panel compare-card" key={i}>
                       <div className="eyebrow">
@@ -1884,7 +1896,7 @@ function App() {
                           </>
                         )}
                         <dt>{tr("average")}</dt>
-                        <dd>{fmt(r?.averageUa ?? 0)} µA</dd>
+                        <dd>{r ? fmt(r.averageUa) : "—"} µA</dd>
                         {design.mode !== "battery" && <><dt>{tr("area")}</dt><dd>{fmt(design.pv.areaCm2)} cm²</dd></>}
                         <dt>{tr("storage")}</dt>
                         <dd>
@@ -1897,7 +1909,7 @@ function App() {
                         {design.mode !== "battery" && <><dt>{tr("lux")}</dt><dd>{design.light.lux}</dd></>}
                       </dl>
                       <p className="warning">
-                        {r ? tr(r.status) : tr("incomplete")}
+                        {!r && designSchema.safeParse(design).success ? bi("等待计算…", "Awaiting calculation…") : r ? tr(r.status) : tr("incomplete")}
                       </p>
                       <p className="result-conclusion">{conclusion(design, r)}</p>
                       {chart(r, design.mode)}
@@ -2527,7 +2539,7 @@ function App() {
               onSubmit={(e) => {
                 e.preventDefault();
                 run(async () => {
-                  if (!canSaveDraft) return;
+                  if (!canSaveDraft || !calculationReady) return;
                   const owner = identity;
                   const epoch = identityEpoch.current;
                   const request = ++caseRequest.current;
@@ -2625,7 +2637,7 @@ function App() {
                       "Visible only to authorized users.",
                     )}
               </p>
-              <button className="primary" disabled={busy || !valid.success || !canSaveDraft}>
+              <button className="primary" disabled={busy || !calculationReady || !canSaveDraft}>
                 {tr("save")}
               </button>
               {current?.canEdit && draftAccess === "ready" && (
@@ -2794,7 +2806,7 @@ function App() {
                   <small>SHA-256 {s.sha256}</small>
                   {viewer?.employee && (
                     <>
-                      <button onClick={() => setParams(s.proposed_json)}>
+                      <button onClick={() => setParams(s.reviewed_json ?? s.proposed_json)}>
                         {tr("review")}
                       </button>
                       <input
@@ -2808,12 +2820,14 @@ function App() {
                           run(async () => {
                             await api("/specs/" + s.id + "/review", {
                               action: "adopt",
+                              expectedRevision: s.review_revision,
+                              expectedComponentVersion: selected.version_id ?? null,
                               note: reviewNote,
                               parameters: JSON.parse(params),
                             });
-                            setComponents(
-                              (await api("/components")).components,
-                            );
+                            const refreshed: Component[] = (await api("/components")).components;
+                            setComponents(refreshed);
+                            setSelected(part => part?.id === selected.id ? refreshed.find(c => c.id === selected.id) ?? part : part);
                             setSpecs(
                               (
                                 await api(
@@ -2891,29 +2905,30 @@ function App() {
           )}
         </ModalShell>
       )}
-      {report && (
+      {report && reportData && (
         <article className="print-report">
           <img
             className="report-logo"
             src="/assets/zenmeasure-blue.png"
             alt="ZenMeasure"
           />
-          <h1>PowerMatch · {d.name}</h1>
+          <h1>PowerMatch · {reportDesign.name}</h1>
           <p>
-            {new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })} · Engine {ENGINE_VERSION} · {tr(scope)}
+            {new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" })} · Engine {ENGINE_VERSION} · {tr(reportData.scope)}
           </p>
+          {reportData.sourceEngineVersion && reportData.sourceEngineVersion !== ENGINE_VERSION && <p>{bi("原修订引擎", "Original revision engine")}: {reportData.sourceEngineVersion} · {bi("本报告重新计算", "Recalculated for this report")}: {ENGINE_VERSION}</p>}
           <h2>{tr("results")}</h2>
-          <p>{conclusion(d, result)}</p>
+          <p>{conclusion(reportDesign, reportResult)}</p>
           <p>
-            {tr("runtime")}: {runtime(result)} · {tr("dark")}:{" "}
-            {runtime(result, true)} · {tr("average")}:{" "}
-            {fmt(result?.averageUa ?? 0)} µA
+            {tr("runtime")}: {runtime(reportResult, false, reportDesign.horizonDays)} · {tr("dark")}:{" "}
+            {runtime(reportResult, true, reportDesign.horizonDays)} · {tr("average")}:{" "}
+            {fmt(reportResult?.averageUa ?? 0)} µA
           </p>
-          {flow}
-          {result?.batteryEstimateHours != null && (
+          {reportData.flow}
+          {reportResult?.batteryEstimateHours != null && (
             <p>
               {bi("标称容量估算续航", "Nominal-capacity estimate")}:{" "}
-              {fmt(result.batteryEstimateHours / 24, 1)} d
+              {fmt(reportResult.batteryEstimateHours / 24, 1)} d
             </p>
           )}
           <h2>{tr("device")}</h2>
@@ -2926,7 +2941,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {d.load.phases.map((p, i) => (
+              {reportDesign.load.phases.map((p, i) => (
                 <tr key={i}>
                   <td>{p.name}</td>
                   <td>{p.seconds}</td>
@@ -2937,55 +2952,44 @@ function App() {
           </table>
           <h2>{bi("设计条件", "Design conditions")}</h2>
           <table className="parameter-table"><tbody>
-            <tr><th>{tr("device")}</th><td>{d.device}</td><th>{tr("voltage")}</th><td>{fmt(d.load.voltage)} V</td></tr>
-            <tr><th>{bi("供电方式", "Supply mode")}</th><td>{tr(d.mode)}</td><th>{tr("regulation")}</th><td>{componentLabel(d.regulation.componentId)}</td></tr>
-            {d.mode !== "battery" && <tr><th>{tr("pv")}</th><td>{componentLabel(d.pv.componentId)} · {fmt(d.pv.areaCm2)} cm²</td><th>{tr("light")}</th><td>{fmt(d.light.lux)} lux · {d.light.days} × {fmt(d.light.hours)} h</td></tr>}
-            {d.mode !== "pv" && <tr><th>{tr("storage")}</th><td>{componentLabel(d.storage.componentId)} · {d.storage.series}S{d.storage.parallel}P</td><th>{tr("dark")}</th><td>{runtime(result, true)}</td></tr>}
+            <tr><th>{tr("device")}</th><td>{reportDesign.device}</td><th>{tr("voltage")}</th><td>{fmt(reportDesign.load.voltage)} V</td></tr>
+            <tr><th>{bi("供电方式", "Supply mode")}</th><td>{tr(reportDesign.mode)}</td><th>{tr("regulation")}</th><td>{(reportDesign.componentEvidence?.regulation?.name ?? reportDesign.regulation.componentId)}</td></tr>
+            {reportDesign.mode !== "battery" && <tr><th>{tr("pv")}</th><td>{(reportDesign.componentEvidence?.pv?.name ?? reportDesign.pv.componentId)} · {fmt(reportDesign.pv.areaCm2)} cm²</td><th>{tr("light")}</th><td>{fmt(reportDesign.light.lux)} lux · {reportDesign.light.days} × {fmt(reportDesign.light.hours)} h</td></tr>}
+            {reportDesign.mode !== "pv" && <tr><th>{tr("storage")}</th><td>{(reportDesign.componentEvidence?.storage?.name ?? reportDesign.storage.componentId)} · {reportDesign.storage.series}S{reportDesign.storage.parallel}P</td><th>{tr("dark")}</th><td>{runtime(reportResult, true, reportDesign.horizonDays)}</td></tr>}
           </tbody></table>
           {reportCompare && <>
             <h2>{bi("方案对比", "Design comparison")}</h2>
-            <p>{lockConditions
+            <p>{reportData.locked
               ? bi("比较使用当前设计的设备负载、光照与演算天数。", "Comparison uses the current device load, lighting and simulation horizon.")
               : bi("比较保留各方案原有条件。", "Comparison retains each design's original conditions.")}</p>
             <table className="parameter-table"><thead><tr><th>{tr("name")}</th><th>{bi("供电", "Supply")}</th><th>{tr("runtime")}</th><th>{bi("状态", "Status")}</th></tr></thead><tbody>
-              {[...snapshots, d].map((item, i) => {
-                const design = lockConditions ? { ...item, load: d.load, light: d.light, horizonDays: d.horizonDays, device: d.device } : item;
-                const r = calculateCached(design);
-                return <tr key={i}><td>{item.name}</td><td>{tr(design.mode)}</td><td>{r?.status === "conditional" ? r.runtimeHours === null ? `≥ ${design.horizonDays * 24} h` : `${fmt(r.runtimeHours)} h` : "—"}</td><td>{r ? tr(r.status) : tr("incomplete")}</td></tr>;
-              })}
+              {reportData.comparisons.map(({design, result: r}, i) => <tr key={i}><td>{design.name}</td><td>{tr(design.mode)}</td><td>{r.status === "conditional" ? r.runtimeHours === null ? `≥ ${design.horizonDays * 24} h` : `${fmt(r.runtimeHours)} h` : "—"}</td><td>{tr(r.status)}</td></tr>)}
             </tbody></table>
           </>}
           <h2>{tr("notes")}</h2>
-          <p>{d.notes}</p>
+          <p>{reportDesign.notes}</p>
           {[
-            ...(result?.missing ?? []),
-            ...(result?.errors ?? []),
-            ...(result?.warnings ?? []),
+            ...(reportResult?.missing ?? []),
+            ...(reportResult?.errors ?? []),
+            ...(reportResult?.warnings ?? []),
           ].map((v) => (
             <p key={v}>{explain(locale, v)}</p>
           ))}
           <h2>{bi("元器件来源", "Component sources")}</h2>
-          {components
-            .filter((c) =>
-              [
-                d.storage.componentId,
-                d.pv.componentId,
-                d.regulation.componentId,
-              ].includes(c.id),
-            )
-            .map((c) => (
-              <p key={c.id}>
-                {c.manufacturer} · {c.name}
-                <br />
-                <a href={c.source}>{c.source}</a>
-              </p>
-            ))}
+          {(["pv", "storage", "regulation"] as const).filter(group => group === "pv" ? reportDesign.mode !== "battery" : group === "storage" ? reportDesign.mode !== "pv" : reportDesign.path !== "direct").map(group => {
+            const c = reportDesign.componentEvidence?.[group];
+            return <p key={group}>{tr(group)} · {c && c.id === reportDesign[group].componentId ? <>
+              {c.manufacturer} · {c.name}<br />
+              <a href={c.source}>{c.source}</a><br />
+              {bi("固定版本", "Pinned version")}: {c.versionId} · {c.recordedAt}
+            </> : <>{bi("未固定元器件依据。历史输入保留，不能用当前目录替代其来源。", "No pinned component evidence. Historical inputs are retained; the current catalog cannot substitute their sources.")}</>}</p>;
+          })}
           <h2>{bi("可复核输入参数", "Reproducible inputs")}</h2>
           <p>{bi("展示数值最多保留两位小数；完整精度请使用工作台的 JSON 导出。", "Values display at most two decimals; export JSON from the workbench for full precision.")}</p>
           <table className="parameter-table"><thead><tr><th>{bi("参数", "Parameter")}</th><th>{bi("数值", "Value")}</th><th>{bi("依据", "Basis")}</th></tr></thead><tbody>
-            {Object.entries(d.parameterSources ?? {}).map(([path, source]) => {
+            {Object.entries(reportDesign.parameterSources ?? {}).map(([path, source]) => {
               const [group, key] = path.split(".");
-              const value = (d as any)[group]?.[key];
+              const value = (reportDesign as any)[group]?.[key];
               const displayed = value === null || value === undefined ? "—" : typeof value === "number" ? key.endsWith("Ua") ? currentText(value) : fmt(value) : String(value);
               return <tr key={path}><td>{path}</td><td>{displayed}</td><td>{source.kind} · {source.reference ?? source.detail ?? ""}</td></tr>;
             })}

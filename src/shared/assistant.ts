@@ -139,6 +139,18 @@ export function selectComponent(input: Design, c: Component): Design {
       };
   }
   const group = c.category === "pv" ? "pv" : ["ldo", "pmic"].includes(c.category) ? "regulation" : "storage";
+  n.componentVersions = { ...n.componentVersions };
+  n.componentEvidence = { ...n.componentEvidence };
+  delete n.componentVersions[group];
+  delete n.componentEvidence[group];
+  if(c.version_id) {
+    n.componentVersions[group] = c.version_id;
+    n.componentEvidence[group] = {
+      id:c.id,name:c.name,manufacturer:c.manufacturer,source:c.source,parameters:{...c.parameters},
+      adoptedSpec:c.adopted_spec??null,versionId:c.version_id,
+      recordedAt:c.version_recorded_at??"",origin:c.version_origin??"catalog",
+    };
+  }
   const unknown = Object.entries(n.parameterSources)
     .filter(([path, info]) => path.startsWith(`${group}.`) && info.kind === "unknown" && info.reference === reference)
     .map(([path]) => path);
@@ -194,7 +206,14 @@ export function applyProposal(
   }
   next = designSchema.parse(next);
   const changes = changesBetween(input, next);
-  if (changes.some((c) => locks.includes(c.path.split(".")[0] as LockGroup)))
+  if(locks.some(group => ['pv','storage','regulation'].includes(group) && (
+    JSON.stringify(input.componentVersions?.[group as 'pv'|'storage'|'regulation'])!==JSON.stringify(next.componentVersions?.[group as 'pv'|'storage'|'regulation']) ||
+    JSON.stringify(input.componentEvidence?.[group as 'pv'|'storage'|'regulation'])!==JSON.stringify(next.componentEvidence?.[group as 'pv'|'storage'|'regulation'])
+  ))) throw new Error('locked-parameters');
+  if (changes.some((c) => {
+    const [group,key]=c.path.split('.');
+    return locks.includes((["componentVersions","componentEvidence"].includes(group)?key:group) as LockGroup);
+  }))
     throw new Error("locked-parameters");
   return {
     proposal,

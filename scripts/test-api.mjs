@@ -189,6 +189,8 @@ await request("/api/specs/" + spec.id + "/review", {
   data: {
     action: "adopt",
     note: "Local fixture review",
+    expectedRevision:0,
+    expectedComponentVersion:(await request('/api/components')).data.components.find(x=>x.id===part.id).version_id,
     parameters: { testValue: 2 },
   },
 });
@@ -337,6 +339,7 @@ await request("/api/ai/assist", {
   user: employee,
   method: "POST",
   data: {
+    requestId: `local-${suffix}-request-1234567890`,
     design: DEFAULT_DESIGN,
     modelId: aiId,
     locale: "zh",

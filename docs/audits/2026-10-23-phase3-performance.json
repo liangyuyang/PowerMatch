@@ -1,0 +1,248 @@
+{
+  "environment": "Home PC / Edge headless / local Workers assets; CPU slowdown is not a physical phone",
+  "samples": [
+    {
+      "mobile": false,
+      "cpuSlowdown": 1,
+      "repeat": 0,
+      "cache": "cold",
+      "readyMs": 769,
+      "longSimulationPaintMs": 42,
+      "longSimulationReadyMs": 149,
+      "lcp": 408,
+      "cls": 0.06787572751322751,
+      "longTasks": [
+        59,
+        70
+      ],
+      "fcp": 372,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": false,
+      "cpuSlowdown": 1,
+      "repeat": 0,
+      "cache": "warm",
+      "readyMs": 622,
+      "longSimulationPaintMs": 62,
+      "longSimulationReadyMs": 65,
+      "lcp": 104,
+      "cls": 0.06538009362599206,
+      "longTasks": [
+        51,
+        60
+      ],
+      "fcp": 104,
+      "scriptBytes": 315276
+    },
+    {
+      "mobile": false,
+      "cpuSlowdown": 1,
+      "repeat": 1,
+      "cache": "cold",
+      "readyMs": 720,
+      "longSimulationPaintMs": 40,
+      "longSimulationReadyMs": 137,
+      "lcp": 208,
+      "cls": 0.06538009362599206,
+      "longTasks": [
+        52,
+        53
+      ],
+      "fcp": 208,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": false,
+      "cpuSlowdown": 1,
+      "repeat": 1,
+      "cache": "warm",
+      "readyMs": 587,
+      "longSimulationPaintMs": 57,
+      "longSimulationReadyMs": 61,
+      "lcp": 80,
+      "cls": 0.06538009362599206,
+      "longTasks": [],
+      "fcp": 80,
+      "scriptBytes": 315276
+    },
+    {
+      "mobile": false,
+      "cpuSlowdown": 1,
+      "repeat": 2,
+      "cache": "cold",
+      "readyMs": 676,
+      "longSimulationPaintMs": 42,
+      "longSimulationReadyMs": 139,
+      "lcp": 188,
+      "cls": 0.06538009362599206,
+      "longTasks": [
+        52
+      ],
+      "fcp": 188,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": false,
+      "cpuSlowdown": 1,
+      "repeat": 2,
+      "cache": "warm",
+      "readyMs": 592,
+      "longSimulationPaintMs": 82,
+      "longSimulationReadyMs": 86,
+      "lcp": 80,
+      "cls": 0.06538009362599206,
+      "longTasks": [],
+      "fcp": 80,
+      "scriptBytes": 315276
+    },
+    {
+      "mobile": true,
+      "cpuSlowdown": 4,
+      "repeat": 0,
+      "cache": "cold",
+      "readyMs": 2659,
+      "longSimulationPaintMs": 179,
+      "longSimulationReadyMs": 273,
+      "lcp": 952,
+      "cls": 0.08061876698636598,
+      "longTasks": [
+        149,
+        99,
+        483,
+        114,
+        151,
+        53,
+        117,
+        169,
+        156,
+        75,
+        157
+      ],
+      "fcp": 952,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": true,
+      "cpuSlowdown": 4,
+      "repeat": 0,
+      "cache": "warm",
+      "readyMs": 1665,
+      "longSimulationPaintMs": 209,
+      "longSimulationReadyMs": 227,
+      "lcp": 272,
+      "cls": 0.08061876698636598,
+      "longTasks": [
+        271,
+        52,
+        100,
+        81,
+        146,
+        155,
+        90,
+        181,
+        78
+      ],
+      "fcp": 272,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": true,
+      "cpuSlowdown": 4,
+      "repeat": 1,
+      "cache": "cold",
+      "readyMs": 2224,
+      "longSimulationPaintMs": 185,
+      "longSimulationReadyMs": 272,
+      "lcp": 820,
+      "cls": 0.08061876698636598,
+      "longTasks": [
+        130,
+        100,
+        328,
+        104,
+        122,
+        94,
+        164,
+        181,
+        85,
+        181
+      ],
+      "fcp": 820,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": true,
+      "cpuSlowdown": 4,
+      "repeat": 1,
+      "cache": "warm",
+      "readyMs": 1680,
+      "longSimulationPaintMs": 298,
+      "longSimulationReadyMs": 320,
+      "lcp": 280,
+      "cls": 0.08061876698636598,
+      "longTasks": [
+        52,
+        267,
+        51,
+        124,
+        84,
+        168,
+        140,
+        90,
+        152
+      ],
+      "fcp": 280,
+      "scriptBytes": 371294
+    },
+    {
+      "mobile": true,
+      "cpuSlowdown": 4,
+      "repeat": 2,
+      "cache": "cold",
+      "readyMs": 2219,
+      "longSimulationPaintMs": 188,
+      "longSimulationReadyMs": 297,
+      "lcp": 804,
+      "cls": 0.1802764182805694,
+      "longTasks": [
+        135,
+        99,
+        422,
+        97,
+        123,
+        92,
+        170,
+        182,
+        165,
+        166
+      ],
+      "fcp": 804,
+      "scriptBytes": 343285
+    },
+    {
+      "mobile": true,
+      "cpuSlowdown": 4,
+      "repeat": 2,
+      "cache": "warm",
+      "readyMs": 1922,
+      "longSimulationPaintMs": 364,
+      "longSimulationReadyMs": 388,
+      "lcp": 304,
+      "cls": 0.08061876698636598,
+      "longTasks": [
+        84,
+        313,
+        63,
+        109,
+        81,
+        155,
+        163,
+        83,
+        202
+      ],
+      "fcp": 304,
+      "scriptBytes": 371294
+    }
+  ]
+}

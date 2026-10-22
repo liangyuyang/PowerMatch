@@ -1,7 +1,7 @@
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs";
 // Repeatable local laboratory samples, not field CWV/INP or production load testing.
-const origin = "http://127.0.0.1:8787";
+const origin = process.env.POWERMATCH_TEST_ORIGIN ?? "http://127.0.0.1:8787";
 const output = process.argv[2] ?? "tmp/phase2-performance.json";
 if (!/^tmp\/[a-z0-9-]+\.json$/.test(output))
   throw new Error("Use a local tmp/*.json output");
@@ -42,6 +42,7 @@ try {
         await expect(
           page.getByRole("button", { name: "保存版本", exact: true }),
         ).toBeEnabled();
+        await page.locator(".chart").first().scrollIntoViewIfNeeded();
         await expect(page.locator(".recharts-surface").first()).toBeVisible();
         const readyMs = Date.now() - start;
         if (cache === "cold")
@@ -55,9 +56,12 @@ try {
             .getByRole("button", { name: "方案对比", exact: true })
             .click();
         await expect(page.locator(".compare-card")).toHaveCount(4);
-        await expect(
-          page.locator(".compare-card .recharts-wrapper"),
-        ).toHaveCount(4);
+        // Chart mounting is viewport driven; exercise every card explicitly.
+        for (const chart of await page.locator(".compare-card .chart").all()) {
+          await chart.scrollIntoViewIfNeeded();
+          await expect(chart.locator(".recharts-wrapper")).toHaveCount(1);
+        }
+        await expect(page.getByRole("button", {name: "导出 PDF", exact: true})).toBeEnabled();
         await page
           .getByRole("button", { name: "设计工作台", exact: true })
           .first()
@@ -77,6 +81,8 @@ try {
             ),
         );
         const longSimulationPaintMs = Date.now() - change;
+        await expect(page.getByRole("button", {name: "保存版本", exact: true})).toBeEnabled();
+        const longSimulationReadyMs = Date.now() - change;
         const metrics = await page.evaluate(() => ({
           ...window.__perf,
           fcp:
@@ -94,6 +100,7 @@ try {
           cache,
           readyMs,
           longSimulationPaintMs,
+          longSimulationReadyMs,
           ...metrics,
         });
       }
