@@ -1,0 +1,21 @@
+{
+  "checkedAt": "2026-10-22T15:26:02.463Z",
+  "origin": "https://powermatch.zenmeasure.space",
+  "version": {
+    "version": "V0.1.32",
+    "revision": "6eb9ea0",
+    "date": "2026.10.22"
+  },
+  "result": "passed",
+  "checks": [
+    "compressed ETag conditional GET 304 with empty body",
+    "catalog no-store retained",
+    "public list limit respected",
+    "invalid limit 400",
+    "anonymous private scope 403",
+    "hashed bundle immutable",
+    "live version matches build"
+  ],
+  "productionDataWrites": 0,
+  "realAI": false
+}

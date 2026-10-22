@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-10-21T00:46:50.980Z",
+  "checkedAt": "2026-10-22T15:25:52.383Z",
   "origin": "https://powermatch.zenmeasure.space",
   "result": "passed",
   "checks": [
@@ -13,9 +13,9 @@
       "status": 200,
       "securityHeaders": true,
       "version": {
-        "version": "V0.1.29",
-        "revision": "33a2771",
-        "date": "2026.10.21"
+        "version": "V0.1.32",
+        "revision": "6eb9ea0",
+        "date": "2026.10.22"
       }
     },
     {
