@@ -146,6 +146,7 @@ export function selectComponent(input: Design, c: Component): Design {
   if(c.version_id) {
     n.componentVersions[group] = c.version_id;
     n.componentEvidence[group] = {
+      ...c.version_snapshot,
       id:c.id,name:c.name,manufacturer:c.manufacturer,source:c.source,parameters:{...c.parameters},
       adoptedSpec:c.adopted_spec??null,versionId:c.version_id,
       recordedAt:c.version_recorded_at??"",origin:c.version_origin??"catalog",

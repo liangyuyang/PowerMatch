@@ -1,8 +1,10 @@
-import { extractText } from "unpdf";
+import {validateFieldEvidence,fieldEvidenceListSchema} from '../src/shared/spec-evidence';
+import {getDocumentProxy} from "unpdf";
 import { extractCandidates } from "../src/shared/spec-parser";
 import { Hono } from "hono";
 import { decodeCaseCursor, encodeCaseCursor, type CaseCursor } from './case-pagination';
 import { matchesETag } from './http-cache';
+import {sendEmail,processMail,recoverMail} from './mail';
 import { pinComponentEvidence } from './component-evidence';
 import { recoverExpiredAIInvocations } from './ai-recovery';
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
@@ -13,6 +15,7 @@ import {
   reserveRate,
 } from "./http-security";
 import { z } from "zod";
+import {registerComparisons} from './comparisons';
 import { registerAI } from "./ai";
 import {
   designSchema,
@@ -110,66 +113,6 @@ async function audit(
     .bind(id(), actor, action, target, detail)
     .run();
 }
-async function resend(
-  env: Env,
-  to: string,
-  subject: string,
-  html: string,
-  key: string,
-) {
-  const secret =
-    typeof env.RESEND_API_KEY === "string"
-      ? env.RESEND_API_KEY
-      : await env.RESEND_API_KEY?.get();
-  if (!secret || !env.RESEND_FROM) throw new Error("email-not-configured");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": key,
-    },
-    body: JSON.stringify({ from: env.RESEND_FROM, to: [to], subject, html }),
-    signal: AbortSignal.timeout(12000),
-  });
-  const payload = (await response.json()) as { id?: string };
-  if (!response.ok || !payload.id)
-    throw new Error(`email-provider-${response.status}`);
-  return payload.id;
-}
-async function processMail(env: Env) {
-  const pending = await env.DB.prepare(
-    "SELECT id,recipient,subject,html FROM mail_outbox WHERE state='pending' AND attempts<3 ORDER BY created_at LIMIT 10",
-  ).all<{ id: string; recipient: string; subject: string; html: string }>();
-  for (const mail of pending.results) {
-    const claimed = await env.DB.prepare(
-      "UPDATE mail_outbox SET state='sending',attempts=attempts+1 WHERE id=? AND state='pending' RETURNING id",
-    )
-      .bind(mail.id)
-      .first();
-    if (!claimed) continue;
-    try {
-      const provider = await resend(
-        env,
-        mail.recipient,
-        mail.subject,
-        mail.html,
-        mail.id,
-      );
-      await env.DB.prepare(
-        "UPDATE mail_outbox SET state='accepted',provider_id=?,html='' WHERE id=?",
-      )
-        .bind(provider, mail.id)
-        .run();
-    } catch (e) {
-      await env.DB.prepare(
-        "UPDATE mail_outbox SET state='failed',error_code=? WHERE id=?",
-      )
-        .bind(e instanceof Error ? e.message : "mail-error", mail.id)
-        .run();
-    }
-  }
-}
 
 app.use("/api/*", async (c, next) => {
   await next();
@@ -222,6 +165,7 @@ app.get("/api/health", async (c) => {
   });
 });
 registerAI(app);
+registerComparisons(app);
 app.get("/api/session", (c) => {
   if (!getCookie(c, "pm_guest"))
     setCookie(c, "pm_guest", randomToken(), {
@@ -266,7 +210,7 @@ app.post("/api/auth/request", async (c) => {
     data.locale === "zh" ? "登录 PowerMatch" : "Sign in to PowerMatch";
   const body = `<div style="font-family:Arial,sans-serif;max-width:540px;margin:auto;color:#172033"><img alt="ZenMeasure" width="180" src="${c.env.APP_ORIGIN}/assets/zenmeasure-blue.png"><h1>PowerMatch</h1><p>${data.locale === "zh" ? "点击下方链接，继续登录。链接15分钟有效，只能使用一次。" : "Continue to sign in. This link expires in 15 minutes and can be used once."}</p><p><a href="${url}" style="display:inline-block;background:#100080;color:white;padding:14px 24px;border-radius:8px;text-decoration:none">${label}</a></p><p>${data.locale === "zh" ? "如果你没有请求登录，请忽略此邮件。" : "If you did not request this email, you can ignore it."}</p></div>`;
   try {
-    await resend(c.env, data.email, label, body, hashed);
+    await sendEmail(c.env, data.email, label, body, hashed);
   } catch (e) {
     await c.env.DB.prepare("DELETE FROM login_tokens WHERE token_hash=?")
       .bind(hashed)
@@ -554,13 +498,15 @@ app.delete("/api/cases/:id", async (c) => {
 });
 app.get("/api/components", async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT c.id,c.name,c.category,c.manufacturer,c.source,c.description,c.parameters_json,c.official,c.verified,c.adopted_spec,c.current_version AS version_id,v.created_at AS version_recorded_at,v.origin AS version_origin,u.display_name AS author_name,u.id AS author_id FROM components c LEFT JOIN users u ON u.id=c.owner_id LEFT JOIN component_versions v ON v.id=c.current_version ORDER BY c.official DESC,c.category,c.name",
-  ).all<{ parameters_json: string }>();
+    "SELECT c.id,c.name,c.category,c.manufacturer,c.source,c.description,c.parameters_json,c.official,c.verified,c.adopted_spec,c.current_version AS version_id,v.created_at AS version_recorded_at,v.origin AS version_origin,v.snapshot_json AS version_snapshot_json,u.display_name AS author_name,u.id AS author_id FROM components c LEFT JOIN users u ON u.id=c.owner_id LEFT JOIN component_versions v ON v.id=c.current_version ORDER BY c.official DESC,c.category,c.name",
+  ).all<{ parameters_json: string;version_snapshot_json:string|null }>();
   const body=JSON.stringify({
     components: rows.results.map((r) => ({
       ...r,
       parameters: JSON.parse(r.parameters_json),
       parameters_json: undefined,
+      version_snapshot:r.version_snapshot_json?JSON.parse(r.version_snapshot_json):undefined,
+      version_snapshot_json:undefined,
     })),
   });
   const etag=`"${await hash(body)}"`;
@@ -631,18 +577,26 @@ app.post("/api/specs/extract", async (c) => {
   )
     return jsonError("text-pdf-max-5mb", 400);
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const extracted = await extractText(bytes, { mergePages: true });
-  const text = extracted.text.slice(0, 150000);
-  return c.json({
-    pages: extracted.totalPages,
-    candidates: extractCandidates(text),
-    ocrRequired: !text.trim(),
-    note: "Candidates only. Confirm model, units, test conditions and source before adoption.",
-  });
+  const pdf=await getDocumentProxy(bytes,{isEvalSupported:false,enableXfa:false,maxImageSize:0} as any);
+  try {
+    if(pdf.numPages>20)return jsonError('pdf-max-20-pages',400);
+    const candidates:ReturnType<typeof extractCandidates>=[];
+    let remaining=150000,hasText=false;
+    for(let page=1;page<=pdf.numPages&&remaining>0&&candidates.length<80;page++){
+      const sheet=await pdf.getPage(page);
+      const content=await sheet.getTextContent();
+      const text=content.items.map(item=>'str' in item?item.str:'').join(' ').slice(0,remaining);
+      remaining-=text.length;hasText ||= !!text.trim();
+      candidates.push(...extractCandidates(text,page).slice(0,80-candidates.length));
+      sheet.cleanup();
+    }
+    return c.json({pages:pdf.numPages,candidates,ocrRequired:!hasText,
+      truncated:remaining===0,note:'Candidates only. Confirm model, units, conditions and source before adoption.'});
+  } finally {await pdf.loadingTask.destroy();}
 });
 app.get("/api/components/:id/specs", async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT s.id,s.filename,s.mime,s.sha256,s.bytes,s.status,s.proposed_json,s.review_note,s.review_revision,r.parameters_json AS reviewed_json,s.created_at,u.display_name AS author_name,u.id AS author_id FROM specs s JOIN users u ON u.id=s.uploader_id LEFT JOIN spec_reviews r ON r.spec_id=s.id AND r.revision=s.review_revision WHERE s.component_id=? ORDER BY s.created_at DESC",
+    "SELECT s.id,s.filename,s.mime,s.sha256,s.bytes,s.status,s.proposed_json,s.review_note,s.review_revision,s.field_evidence_json,r.field_evidence_json AS reviewed_evidence_json,r.parameters_json AS reviewed_json,s.created_at,u.display_name AS author_name,u.id AS author_id FROM specs s JOIN users u ON u.id=s.uploader_id LEFT JOIN spec_reviews r ON r.spec_id=s.id AND r.revision=s.review_revision WHERE s.component_id=? ORDER BY s.created_at DESC",
   )
     .bind(c.req.param("id"))
     .all();
@@ -681,6 +635,8 @@ app.post("/api/components/:id/specs", async (c) => {
   const proposed = paramSchema.parse(
     JSON.parse(String(body.get("parameters") || "{}")),
   );
+  let fieldEvidence;
+  try {fieldEvidence=validateFieldEvidence(JSON.parse(String(body.get("fieldEvidence")||"[]")),proposed);} catch {return jsonError("field-evidence-value-mismatch",400);}
   const sha = await hash(bytes);
   const existing = await c.env.DB.prepare(
     "SELECT id FROM specs WHERE component_id=? AND sha256=?",
@@ -694,7 +650,7 @@ app.post("/api/components/:id/specs", async (c) => {
     httpMetadata: { contentType: file.type },
   });
   try { await c.env.DB.prepare(
-    "INSERT INTO specs(id,component_id,uploader_id,filename,mime,r2_key,sha256,bytes,proposed_json) VALUES(?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO specs(id,component_id,uploader_id,filename,mime,r2_key,sha256,bytes,proposed_json,field_evidence_json) VALUES(?,?,?,?,?,?,?,?,?,?)",
   )
     .bind(
       key,
@@ -706,6 +662,7 @@ app.post("/api/components/:id/specs", async (c) => {
       sha,
       file.size,
       JSON.stringify(proposed),
+      JSON.stringify(fieldEvidence),
     )
     .run(); } catch(error) {
       // Read back an uncertain commit before deleting this request's unique object.
@@ -743,6 +700,7 @@ app.post("/api/specs/:id/review", async (c) => {
       action: z.enum(["adopt", "reject"]),
       note: z.string().trim().min(1).max(1000),
       parameters: paramSchema,
+      fieldEvidence:fieldEvidenceListSchema.optional(),
       expectedRevision: z.number().int().nonnegative(),
       expectedComponentVersion: z.string().max(160).nullable().optional(),
     })
@@ -756,14 +714,16 @@ app.post("/api/specs/:id/review", async (c) => {
     .bind(row.component_id).first<{current_version:string|null}>();
   if(data.action==='adopt' && (data.expectedComponentVersion===undefined || component?.current_version!==data.expectedComponentVersion))
     return jsonError('component-version-conflict',409);
+  let fieldEvidence;
+  try {fieldEvidence=validateFieldEvidence(data.fieldEvidence,data.parameters);} catch {return jsonError("field-evidence-value-mismatch",400);}
   const reviewId=id(),versionId=id();
   const statements = [
     c.env.DB.prepare(
-      `INSERT INTO spec_reviews(id,spec_id,revision,action,parameters_json,note,reviewer_id)
-       SELECT ?,s.id,s.review_revision+1,?,?,?,? FROM specs s JOIN components c ON c.id=s.component_id
+      `INSERT INTO spec_reviews(id,spec_id,revision,action,parameters_json,note,reviewer_id,field_evidence_json)
+       SELECT ?,s.id,s.review_revision+1,?,?,?,?,? FROM specs s JOIN components c ON c.id=s.component_id
        WHERE s.id=? AND s.review_revision=? AND (?='reject' OR c.current_version IS ?)`,
     ).bind(
-      reviewId,data.action,JSON.stringify(data.parameters),data.note,user.id,row.id,data.expectedRevision,
+      reviewId,data.action,JSON.stringify(data.parameters),data.note,user.id,JSON.stringify(fieldEvidence),row.id,data.expectedRevision,
       data.action,data.expectedComponentVersion??null,
     ),
     c.env.DB.prepare("UPDATE specs SET status=?,review_note=?,reviewer_id=?,review_revision=review_revision+1 WHERE id=? AND EXISTS(SELECT 1 FROM spec_reviews WHERE id=?)")
@@ -773,9 +733,9 @@ app.post("/api/specs/:id/review", async (c) => {
     statements.push(c.env.DB.prepare(`INSERT INTO component_versions(id,component_id,snapshot_json,origin)
       SELECT ?,id,json_object('id',id,'name',name,'manufacturer',manufacturer,'source',source,
       'parameters',json(?),'adoptedSpec',?,'specSha256',?,'specFilename',?,
-      'reviewId',?,'reviewRevision',?),'spec-review:'||? FROM components
+      'reviewId',?,'reviewRevision',?,'fieldEvidence',json(?)),'spec-review:'||? FROM components
       WHERE id=? AND EXISTS(SELECT 1 FROM spec_reviews WHERE id=?)`)
-      .bind(versionId,JSON.stringify(data.parameters),row.id,row.sha256,row.filename,reviewId,data.expectedRevision+1,reviewId,row.component_id,reviewId));
+      .bind(versionId,JSON.stringify(data.parameters),row.id,row.sha256,row.filename,reviewId,data.expectedRevision+1,JSON.stringify(fieldEvidence),reviewId,row.component_id,reviewId));
     statements.push(
       c.env.DB.prepare(
         "UPDATE components SET parameters_json=?,adopted_spec=?,verified=1,current_version=? WHERE id=? AND EXISTS(SELECT 1 FROM spec_reviews WHERE id=?)",
@@ -788,7 +748,7 @@ app.post("/api/specs/:id/review", async (c) => {
   return c.json({ ok: true,reviewRevision:data.expectedRevision+1,versionId:data.action==='adopt'?versionId:null });
 });
 app.get('/api/specs/:id/reviews',async(c)=>{
-  const reviews=await c.env.DB.prepare('SELECT id,revision,action,parameters_json,note,created_at FROM spec_reviews WHERE spec_id=? ORDER BY revision DESC LIMIT 100')
+  const reviews=await c.env.DB.prepare('SELECT id,revision,action,parameters_json,field_evidence_json,note,created_at FROM spec_reviews WHERE spec_id=? ORDER BY revision DESC LIMIT 100')
     .bind(c.req.param('id')).all();
   return c.json({reviews:reviews.results});
 });
@@ -972,17 +932,15 @@ app.post("/api/admin/maintenance", async (c) => {
   const user = c.get("user");
   if (!user?.admin) return jsonError("admin-required", 403);
   const aiRecovery=await recoverExpiredAIInvocations(c.env.DB);
+  const mailRecovery=await recoverMail(c.env.DB,true);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM login_tokens WHERE expires_at<?").bind(now()),
     c.env.DB.prepare("DELETE FROM sessions WHERE expires_at<?").bind(now()),
     c.env.DB.prepare("DELETE FROM rate_limits WHERE expires_at<?").bind(now()),
-    c.env.DB.prepare(
-      "UPDATE mail_outbox SET state='pending' WHERE state='failed' AND attempts<3",
-    ),
   ]);
   c.executionCtx.waitUntil(processMail(c.env));
   await audit(c.env, user.id, "maintenance", "powermatch");
-  return c.json({ ok: true, aiRecovery });
+  return c.json({ ok: true, aiRecovery,mailRecovery });
 });
 app.get("/api/admin", async (c) => {
   if (!c.get("user")?.admin) return jsonError("admin-required", 403);

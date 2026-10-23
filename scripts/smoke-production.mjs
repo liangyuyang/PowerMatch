@@ -8,7 +8,7 @@ function checkHeaders(response, api = false) {
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
   assert.equal(response.headers.get("x-frame-options"), "DENY");
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
-  assert.ok((response.headers.get("content-security-policy") || "").includes("script-src 'self' https://static.cloudflareinsights.com;"));
+  assert.ok((response.headers.get("content-security-policy") || "").includes("script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com;"));
   if (api) assert.equal(response.headers.get("cache-control"), "no-store");
 }
 for (const path of [

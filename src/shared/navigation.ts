@@ -15,6 +15,8 @@ export function pageUrl(url: URL, page: Page) {
   const next = new URL(url);
   next.searchParams.delete("case");
   next.searchParams.delete("revision");
+  next.searchParams.delete('comparison');
+  next.searchParams.delete('comparisonRevision');
   next.searchParams.set("page", page);
   if (next.hash.startsWith("#component=")) next.hash = "";
   return next.pathname + next.search + next.hash;

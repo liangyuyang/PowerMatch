@@ -38,9 +38,10 @@ function authenticatedApp(viewer: Viewer | null) {
 }
 beforeEach(() => {
   sqlite = new DatabaseSync(":memory:");
-  for (const file of ["0001_initial", "0004_ai", "0005_ai_billing", "0006_ai_diagnostics", "0012_ai_recovery"])
+  for (const file of ["0001_initial", "0004_ai", "0005_ai_billing", "0006_ai_diagnostics", "0012_ai_recovery", "0013_ai_budgets"])
     sqlite.exec(readFileSync(new URL(`../worker/migrations/${file}.sql`, import.meta.url), "utf8"));
   sqlite.prepare("INSERT INTO users(id,email,display_name) VALUES(?,?,'AI test')").run(user.id, user.email);
+  sqlite.prepare("INSERT INTO ai_models(id,config_json,enabled,is_default,health) VALUES('model',?,1,1,'ok')").run(row.config_json);
   sqlite.prepare("UPDATE ai_settings SET settings_json=?").run('{"usdToCny":7}');
   env = { DB: localD1(sqlite), POWERMATCH_AI_DEEPSEEK_KEY: "fake-test-key" } as Env;
   consume.mockClear();
@@ -79,13 +80,17 @@ describe("provider accounting survives failed content", () => {
     expect(last().input_tokens).toBeNull(); expect(last().estimated_cost).toBeNull(); expect(last().cost_cny).toBeNull();
     expect(last().price_snapshot).toBeTruthy();
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload())));
-    await invoke(env, user, { ...row, config_json: JSON.stringify({ ...config, billingMode: "plan", planFee: 99 }) }, "design", [], consume);
+    const planRow = { ...row, config_json: JSON.stringify({ ...config, billingMode: "plan", planFee: 99 }) };
+    sqlite.prepare("UPDATE ai_models SET config_json=? WHERE id='model'").run(planRow.config_json);
+    await invoke(env, user, planRow, "design", [], consume);
     expect(last().input_tokens).toBe(100); expect(last().estimated_cost).toBeNull(); expect(last().cost_cny).toBeNull();
     expect(JSON.parse(String(last().price_snapshot))).toMatchObject({ billingMode: "plan", planFee: 99 });
   });
   it("logs a missing-key failure without inventing zero/request charges", async () => {
     env.POWERMATCH_AI_DEEPSEEK_KEY = undefined;
-    const result = await invoke(env, user, { ...row, config_json: JSON.stringify({ ...config, billingMode: "request", requestPrice: 1 }) }, "health", [], consume);
+    const requestRow = { ...row, config_json: JSON.stringify({ ...config, billingMode: "request", requestPrice: 1 }) };
+    sqlite.prepare("UPDATE ai_models SET config_json=? WHERE id='model'").run(requestRow.config_json);
+    const result = await invoke(env, user, requestRow, "health", [], consume);
     expect(result.status).toBe(503); expect(last().estimated_cost).toBeNull(); expect(last().price_snapshot).toBeTruthy();
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -137,7 +142,7 @@ describe("leases and bounded reservations", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
   it("does not mark a model unhealthy when its health-check lease is recovered", async () => {
-    sqlite.prepare("INSERT INTO ai_models(id,config_json,enabled,is_default,health,checked_at,latency_ms) VALUES('model',?,1,1,'ok','prior-check',8)").run(row.config_json);
+    sqlite.prepare("UPDATE ai_models SET checked_at='prior-check',latency_ms=8 WHERE id='model'").run();
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     vi.stubGlobal("fetch", vi.fn(async () => { await gate; return Response.json(payload()); }));

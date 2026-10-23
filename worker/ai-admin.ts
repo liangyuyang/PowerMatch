@@ -4,6 +4,7 @@ import type { Env } from "./index";
 import type { Viewer } from "../src/shared/model";
 import {
   modelConfigSchema,
+  aiBillingSchema,
   runtimeIdentity,
   secretTarget,
   type AIConfig,
@@ -88,11 +89,7 @@ export function registerAIAdmin(
     const payload = z
       .object({
         revision: z.number().int().min(0),
-        billing: z
-          .object({
-            usdToCny: z.number().finite().min(0.01).max(100).nullable(),
-          })
-          .strict(),
+        billing: aiBillingSchema,
         models: z
           .array(
             z

@@ -16,8 +16,17 @@ try {
     window.print = () => {};
   });
   const response = await page.goto(origin);
-  assert.ok(response.headers()["content-security-policy"].includes("script-src 'self' https://static.cloudflareinsights.com;"));
+  assert.ok(response.headers()["content-security-policy"].includes("script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com;"));
   await expect(page.getByRole("button", { name: "保存版本", exact: true })).toBeEnabled();
+  const bomDownload=page.waitForEvent('download');
+  await page.getByRole('button',{name:'导出 BOM',exact:true}).click();
+  const downloaded=await bomDownload;
+  const bomFile=await downloaded.path();
+  const {readFileSync}=await import('node:fs');
+  const csv=readFileSync(bomFile,'utf8');
+  assert.ok(csv.startsWith('\uFEFF'));
+  assert.ok(csv.includes('not a complete circuit BOM'));
+  assert.ok(csv.includes('requested_version'));
   await expect(page.locator(".recharts-surface").first()).toBeVisible();
   await page.getByRole("button", { name: "AI 设计助手", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -35,5 +44,5 @@ try {
   await page.screenshot({ path: "tmp/phase1-local/built-mobile.png", fullPage: true });
   assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: "passed", origin, checks: ["production asset CSP", "chart and AI lazy chunks", "branded print PDF", "mobile layout", "no CSP violations or page errors"], liveAI: false }));
+  console.log(JSON.stringify({ result: "passed", origin, checks: ["production asset CSP", "chart and AI lazy chunks", "branded print PDF", "BOM CSV download", "mobile layout", "no CSP violations or page errors"], liveAI: false }));
 } finally { await browser.close(); }

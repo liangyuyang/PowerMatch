@@ -1,4 +1,7 @@
 import "./csp-runtime";
+import {bomCSV} from './shared/bom';
+import {SpecFieldEditor} from './spec-field-editor';
+import {validateFieldEvidence,type FieldEvidence} from './shared/spec-evidence';
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -42,6 +45,7 @@ import { t, explain, languageNames, type Word } from "./i18n";
 import "./style.css";
 const AIAssistant = React.lazy(() => import("./ai-ui").then((module) => ({ default: module.AIAssistant })));
 const AIAdmin = React.lazy(() => import("./model-settings").then((module) => ({ default: module.AIAdmin })));
+const SpecExtraction=React.lazy(()=>import('./spec-extraction').then(module=>({default:module.SpecExtraction})));
 import DeferredEnergyChart from "./deferred-energy-chart";
 import { canUseComponent, selectComponent } from "./shared/assistant";
 import { checkDraftAccess, defaultDraftScope, draftKey, readDraft, writeDraft, type DraftAccess, type DraftCaseContext } from "./shared/draft";
@@ -54,6 +58,8 @@ import { readPage, pageUrl, caseUrl, type Page } from "./shared/navigation";
 import { uiText, parameterLabel } from "./ui-text";
 import { calculationKey } from "./calculation-client";
 import { useCalculations } from "./use-calculations";
+import { CloudComparisons } from './cloud-comparisons';
+import type { ComparisonContext } from './shared/comparisons';
 const fmt = (n: number, d = 2) => Number(n.toFixed(d)).toString();
 const currentText = (ua: number | null | undefined) =>
   ua == null ? "—" : Math.abs(ua) < 1 && ua !== 0 ? `${fmt(ua * 1000)} nA` : `${fmt(ua)} µA`;
@@ -222,7 +228,9 @@ function App() {
     [params, setParams] = useState("{}"),
     [reviewNote, setReviewNote] = useState(""),
     [uploadFile, setUploadFile] = useState<File | null>(null),
-    [candidates, setCandidates] = useState<any[]>([]),
+    [candidates, setCandidates] = useState<FieldEvidence[]>([]),
+    [fieldEvidence,setFieldEvidence]=useState<FieldEvidence[]>([]),
+    [fieldSpecId,setFieldSpecId]=useState<string|null>(null),
     [snapshots, setSnapshots] = useState<Design[]>(() => {
       return starterSnapshots();
     }),
@@ -254,6 +262,11 @@ function App() {
     locked: boolean; comparisons: {design: Design; result: Result}[]; flow: React.ReactNode;
   } | null>(null);
   const [caseCursor,setCaseCursor] = useState<string|null>(null);
+  const [comparisonContext,setComparisonContext]=useState<ComparisonContext|null>(null);
+  const [linkedComparison,setLinkedComparison]=useState(()=>{
+    const url=new URL(location.href),id=url.searchParams.get('comparison'),revision=Number(url.searchParams.get('comparisonRevision'));
+    return id?{id,revision:Number.isInteger(revision)&&revision>0?revision:undefined}:null;
+  });
   const [partParams,setPartParams]=useState('{}');
   const pendingOps=useRef(0);
   const [casesLoading,setCasesLoading] = useState(false);
@@ -273,6 +286,7 @@ function App() {
     if(url!==location.pathname+location.search+location.hash) history.pushState({},'',url);
     setPageState(next);
     setLinkedCase(null);
+    setLinkedComparison(null);
   };
   useEffect(()=>{
     const back=()=>{
@@ -280,6 +294,8 @@ function App() {
       setPageState(readPage(url));
       setModal(null);setPicker(null);setAiOpen(false);
       setLinkedCase(url.searchParams.get('case')?{id:url.searchParams.get('case')!,revision:url.searchParams.get('revision')??undefined}:null);
+      const comparisonId=url.searchParams.get('comparison'),comparisonRevision=Number(url.searchParams.get('comparisonRevision'));
+      setLinkedComparison(comparisonId?{id:comparisonId,revision:Number.isInteger(comparisonRevision)&&comparisonRevision>0?comparisonRevision:undefined}:null);
     };
     window.addEventListener('popstate',back);
     return ()=>window.removeEventListener('popstate',back);
@@ -451,9 +467,10 @@ function App() {
     setTarget({ type: "application", target: "general" });
     setAdmin(null);
     setPartParams('{}');setPartName('');setPartMaker('');setPartSource('');
-    setSelected(null);setParams('{}');setReviewNote('');setCandidates([]);setUploadFile(null);setSpecs([]);
+    setSelected(null);setParams('{}');setReviewNote('');setCandidates([]);setUploadFile(null);setSpecs([]);setFieldEvidence([]);setFieldSpecId(null);specFileEpoch.current++;specExtractAbort.current?.abort();
     ++specsRequest.current;specsAbort.current?.abort();
     if (saved) {
+      setComparisonContext(saved.comparisonContext??null);
       setD(saved.design);
       setSnapshots(saved.snapshots);
       setLockConditions(saved.lockConditions);
@@ -464,6 +481,7 @@ function App() {
       if (context) void checkCase(context, owner, epoch, request);
       if (saved.legacy) setNotice(bi("已恢复旧格式草稿；旧草稿不含案例关联，保存将创建新方案。", "Legacy draft restored. It has no saved case link; saving creates a new case."));
     } else {
+      setComparisonContext(null);
       if (draftOwner !== null) {
         setD(cloneDesign());
         setSnapshots(starterSnapshots());
@@ -480,12 +498,12 @@ function App() {
     if (!sessionReady || authPending || !draftOwner || draftOwner !== identity) return;
     try {
       (draftOwner === "guest" ? localStorage : sessionStorage).setItem(draftKey(draftOwner), writeDraft(draftOwner, {
-        design: d, snapshots, lockConditions, intendedScope: scope, caseContext: draftContext(),
+        design: d, snapshots, lockConditions, intendedScope: scope, caseContext: draftContext(),comparisonContext,
       }));
     } catch {
       // Browser storage may be unavailable; server-side case saving still works.
     }
-  }, [draftOwner, d, snapshots, lockConditions, scope, current, sessionReady, authPending, identity]);
+  }, [draftOwner, d, snapshots, lockConditions, scope, current, comparisonContext,sessionReady, authPending, identity]);
   useEffect(() => {
     if (!sessionReady || !viewer || new URLSearchParams(location.search).get("messages") !== "1") return;
     const url = new URL(location.href);
@@ -682,13 +700,16 @@ function App() {
           ),
         );
     });
+  const specFileEpoch=useRef(0),specExtractAbort=useRef<AbortController|null>(null);
+  useEffect(()=>()=>{specExtractAbort.current?.abort();},[]);
+  const evidenceValid=(()=>{try{validateFieldEvidence(fieldEvidence,parseParameters(params)??{});return true;}catch{return false;}})();
   const showComponent = async (c: Component) => {
     const request=++specsRequest.current;
     specsAbort.current?.abort();
     const controller=new AbortController();specsAbort.current=controller;
     setSelected(c);
     if(selected?.id!==c.id) setParams(JSON.stringify(c.parameters, null, 2));
-    if(selected?.id!==c.id) {setReviewNote("");setCandidates([]);setUploadFile(null);}
+    if(selected?.id!==c.id) {specFileEpoch.current++;specExtractAbort.current?.abort();setReviewNote("");setCandidates([]);setUploadFile(null);setFieldEvidence([]);setFieldSpecId(null);}
     setSpecs([]);setSpecsLoading(true);
     setModal("component");
     try {
@@ -752,6 +773,12 @@ function App() {
     }
     setModal(null);
     setPage("workbench");
+  };
+  const exportBOM = () => {
+    if(!calculationReady)return;
+    const url=URL.createObjectURL(new Blob([bomCSV(cloneDesign(d),current?{caseId:current.id,revision:current.revision}:{})],{type:'text/csv;charset=utf-8'}));
+    const a=document.createElement('a');a.href=url;a.download='powermatch-selection-bom.csv';a.click();URL.revokeObjectURL(url);
+    setNotice(bi('已导出选型 BOM：仅包含当前选用器件，未知数量或来源已标出，尚非完整电路物料表。','Selection BOM exported. Unknown quantities and sources are marked; this is not a complete circuit parts list.'));
   };
   const exportJson = () => {
     if (!calculationReady) return;
@@ -1067,6 +1094,7 @@ function App() {
                 <Plus />
                 {tr("compare")}
               </button>
+              <button disabled={!calculationReady} onClick={exportBOM} title={bi('导出当前选用器件与固定资料版本，尚非完整电路 BOM','Export selected parts and pinned sources; not a complete circuit BOM')}><Download/>{bi('导出 BOM','Export BOM')}</button>
               <button disabled={!reportReady} onClick={print}>
                 <Download />
                 {tr("report")}
@@ -1817,6 +1845,16 @@ function App() {
         )}
         {page === "compare" && (
           <>
+            <CloudComparisons design={d} snapshots={snapshots} locked={lockConditions} viewer={viewer}
+              ready={sessionReady&&!sessionUnavailable&&!authPending&&draftOwner===identity}
+              context={comparisonContext} onContext={setComparisonContext} bi={bi}
+              linked={linkedComparison} onLinkedHandled={()=>setLinkedComparison(null)} sourceRevisions={revisions}
+              onSessionFailure={()=>{setSessionUnavailable(true);void refreshSession();}}
+              onLoad={detail=>{
+                ++caseRequest.current;setCurrent(null);setRevisions([]);setDraftAccess('ready');setScope(defaultDraftScope(viewer?.employee));
+                setUndoPreset(null);setUndoAI(null);setSnapshots(detail.snapshots.slice(0,-1).map(item=>cloneDesign(item.design)));
+                setD(cloneDesign(detail.snapshots.at(-1)!.design));setLockConditions(detail.locked);
+              }}/>
             <div className="panel compare-conditions">
               <label className="check">
                 <input
@@ -2209,19 +2247,20 @@ function App() {
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
-                    await api("/admin/maintenance", {});
+                    const recovered=await api("/admin/maintenance", {});
+                    setNotice(bi(`已恢复 ${recovered.mailRecovery.reconciled} 条可安全处理的邮件；结果未知且已超安全期限的邮件需人工核对，不会自动重发。`,`Recovered ${recovered.mailRecovery.reconciled} safely processable emails. Uncertain outcomes beyond the safe retry window require manual review and are not resent.`));
                     setAdmin(await api("/admin"));
                   })
                 }
               >
                 {bi(
-                  "重试失败邮件 / 清理过期记录",
-                  "Retry failed mail / clean expired records",
+                  "恢复可安全重试的邮件 / 清理过期记录",
+                  "Recover safely retryable mail / clean expired records",
                 )}
               </button>
               {admin.mail.map((m: any) => (
                 <p key={m.id}>
-                  {m.state} · {m.attempts} · {m.error_code ?? ""}
+                  {({pending:bi('待发送','Pending'),sending:bi('发送中','Sending'),'retry-wait':bi('等待安全重试','Waiting for safe retry'),'manual-review':bi('需人工核对，不自动重发','Manual review; no automatic resend'),accepted:bi('供应商已接收','Accepted by provider'),failed:bi('失败','Failed'),skipped:bi('已跳过','Skipped')} as Record<string,string>)[m.state]??m.state} · {bi('尝试次数','Attempts')}: {m.attempts} · {m.error_code ?? ""}
                 </p>
               ))}
             </section>
@@ -2730,21 +2769,24 @@ function App() {
               <input
                 type="file"
                 accept="application/pdf,image/png,image/jpeg"
-                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {specFileEpoch.current++;specExtractAbort.current?.abort();setUploadFile(e.target.files?.[0]??null);setCandidates([]);setFieldEvidence([]);setFieldSpecId(null);}}
               />
               <button
-                disabled={!viewer || !uploadFile || busy}
+                disabled={!viewer || !uploadFile || uploadFile.type!=="application/pdf" || busy}
                 onClick={() =>
                   run(async () => {
+                    const epoch=specFileEpoch.current,owner=identityRef.current;
+                    const controller=new AbortController();specExtractAbort.current?.abort();specExtractAbort.current=controller;
                     const form = new FormData();
                     form.set("file", uploadFile!);
-                    const x = await api("/specs/extract", form);
+                    const x = await api("/specs/extract", form,undefined,undefined,{signal:controller.signal});
+                    if(epoch!==specFileEpoch.current||owner!==identityRef.current||controller.signal.aborted)return;
                     setCandidates(x.candidates);
                     if (x.ocrRequired)
                       setNotice(
                         bi(
-                          "扫描件需要 OCR；请暂时人工填写。",
-                          "Scanned document needs OCR; enter parameters manually.",
+                          "扫描件可使用下方本地 OCR；识别后请核对原文。",
+                          "Use local OCR below for scans, then verify the original.",
                         ),
                       );
                   })
@@ -2752,15 +2794,17 @@ function App() {
               >
                 {bi("提取 PDF 候选参数", "Extract PDF candidates")}
               </button>
+              <React.Suspense fallback={<p role="status">{uiText(locale,'loading')}</p>}><SpecExtraction file={uploadFile} locale={locale} onCandidates={setCandidates}/></React.Suspense>
               {candidates.map((c, i) => (
                 <div className="post" key={i}>
                   <p>
-                    {c.parameter}: {c.value}
+                    {c.parameter}: {fmt(Number(c.value),2)} {c.unit} · {bi("页码", "Page")} {c.page??"—"}
                   </p>
                   <small>{c.excerpt}</small>
                   <button
                     onClick={() => {
                       try {
+                        setFieldEvidence(fields=>[...fields.filter(f=>f.parameter!==c.parameter),c]);setFieldSpecId(null);
                         setParams(
                           JSON.stringify(
                             { ...JSON.parse(params), [c.parameter]: c.value },
@@ -2778,13 +2822,16 @@ function App() {
                 </div>
               ))}
               <ComponentParameters category={selected.category} value={params} onChange={setParams} locale={locale}/>
+              <SpecFieldEditor fields={fieldEvidence} onChange={setFieldEvidence} parameters={parseParameters(params)} locale={locale}/>
+              {!evidenceValid&&<p role="alert" className="warning">{bi("参数与来源记录不一致，请重新确认或移除对应来源。","Parameters and evidence differ. Reconfirm or remove the affected evidence.")}</p>}
               <button
-                disabled={!viewer || !uploadFile || busy || !parseParameters(params)}
+                disabled={!viewer || !uploadFile || busy || !parseParameters(params) || !evidenceValid || fieldSpecId!==null}
                 onClick={() =>
                   run(async () => {
                     const f = new FormData();
                     f.set("file", uploadFile!);
                     f.set("parameters", JSON.stringify(JSON.parse(params)));
+                    f.set("fieldEvidence",JSON.stringify(fieldEvidence));
                     await api("/components/" + selected.id + "/specs", f);
                     setSpecs(
                       (await api("/components/" + selected.id + "/specs"))
@@ -2804,9 +2851,13 @@ function App() {
                     {human(s.author_name)} · {s.status} · {date(s.created_at)}
                   </p>
                   <small>SHA-256 {s.sha256}</small>
+                  <details><summary>{bi('逐字段来源（提交者声明）','Field sources (submitter claims)')}</summary>
+                    <p className="caption">{bi('文件哈希只绑定文件身份，不证明摘录或测试条件正确。采用前请核对原文。','The hash binds file identity, not the accuracy of quotes or conditions. Check the original before adoption.')}</p>
+                    {JSON.parse(s.reviewed_evidence_json??s.field_evidence_json??'[]').map((field:FieldEvidence)=><p key={field.parameter}>{field.parameter}: {String(field.value??'—')} {field.unit} · {bi('页码','Page')} {field.page??'—'} · {field.excerpt||bi('摘录未知','Excerpt unknown')} · {field.conditions||bi('测试条件未知','Conditions unknown')}</p>)}
+                  </details>
                   {viewer?.employee && (
                     <>
-                      <button onClick={() => setParams(s.reviewed_json ?? s.proposed_json)}>
+                      <button onClick={() => {specFileEpoch.current++;specExtractAbort.current?.abort();setUploadFile(null);setCandidates([]);setParams(s.reviewed_json ?? s.proposed_json);setFieldEvidence(JSON.parse(s.reviewed_evidence_json??s.field_evidence_json??'[]'));setFieldSpecId(s.id);}}>
                         {tr("review")}
                       </button>
                       <input
@@ -2815,7 +2866,7 @@ function App() {
                         onChange={(e) => setReviewNote(e.target.value)}
                       />
                       <button
-                        disabled={!reviewNote || busy || !parseParameters(params)}
+                        disabled={!reviewNote || busy || !parseParameters(params) || (fieldSpecId===s.id&&!evidenceValid)}
                         onClick={() =>
                           run(async () => {
                             await api("/specs/" + s.id + "/review", {
@@ -2824,6 +2875,7 @@ function App() {
                               expectedComponentVersion: selected.version_id ?? null,
                               note: reviewNote,
                               parameters: JSON.parse(params),
+                              fieldEvidence:fieldSpecId===s.id?fieldEvidence:[],
                             });
                             const refreshed: Component[] = (await api("/components")).components;
                             setComponents(refreshed);
@@ -2978,11 +3030,14 @@ function App() {
           <h2>{bi("元器件来源", "Component sources")}</h2>
           {(["pv", "storage", "regulation"] as const).filter(group => group === "pv" ? reportDesign.mode !== "battery" : group === "storage" ? reportDesign.mode !== "pv" : reportDesign.path !== "direct").map(group => {
             const c = reportDesign.componentEvidence?.[group];
-            return <p key={group}>{tr(group)} · {c && c.id === reportDesign[group].componentId ? <>
+            return <section key={group}><p>{tr(group)} · {c && c.id === reportDesign[group].componentId ? <>
               {c.manufacturer} · {c.name}<br />
               <a href={c.source}>{c.source}</a><br />
               {bi("固定版本", "Pinned version")}: {c.versionId} · {c.recordedAt}
-            </> : <>{bi("未固定元器件依据。历史输入保留，不能用当前目录替代其来源。", "No pinned component evidence. Historical inputs are retained; the current catalog cannot substitute their sources.")}</>}</p>;
+            </> : <>{bi("未固定元器件依据。历史输入保留，不能用当前目录替代其来源。", "No pinned component evidence. Historical inputs are retained; the current catalog cannot substitute their sources.")}</>}</p>
+              {c?.fieldEvidence?.length?<><p className="caption">{bi('以下为审核记录中的逐字段来源；文件哈希不证明内容真实性。','Field sources from the review record; a file hash does not establish the truth of its content.')}</p>
+                <table className="parameter-table"><thead><tr><th>{bi('参数','Parameter')}</th><th>{bi('值 / 页码','Value / page')}</th><th>{bi('原文与测试条件','Excerpt and conditions')}</th></tr></thead><tbody>{c.fieldEvidence.map(field=><tr key={field.parameter}><td>{field.parameter}</td><td>{typeof field.value==='number'?fmt(field.value):String(field.value??'—')} {field.unit} · {field.page??'—'}</td><td>{field.excerpt||bi('摘录未知','Excerpt unknown')}<br/>{field.conditions||bi('测试条件未知','Conditions unknown')}</td></tr>)}</tbody></table></>:<p className="caption">{bi('逐字段来源未提供。','Field-level sources not provided.')}</p>}
+            </section>;
           })}
           <h2>{bi("可复核输入参数", "Reproducible inputs")}</h2>
           <p>{bi("展示数值最多保留两位小数；完整精度请使用工作台的 JSON 导出。", "Values display at most two decimals; export JSON from the workbench for full precision.")}</p>

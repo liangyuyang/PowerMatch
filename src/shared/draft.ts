@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { designSchema, type Design, type Scope } from "./model";
+import { comparisonContextSchema, type ComparisonContext } from './comparisons';
 
 const scopeSchema = z.enum(["public", "company", "private"]);
 const contextSchema = z.object({
@@ -17,6 +18,7 @@ export interface LocalDraft {
   lockConditions: boolean;
   intendedScope: Scope;
   caseContext: DraftCaseContext | null;
+  comparisonContext?: ComparisonContext | null;
   legacy?: boolean;
 }
 
@@ -36,6 +38,8 @@ export function readDraft(raw: string | null, owner: string, fallbackScope: Scop
     const scope = scopeSchema.safeParse(data.version === 1 ? fallbackScope : data.intendedScope);
     const context = data.version === 1 || data.caseContext === null
       ? null : contextSchema.safeParse(data.caseContext);
+    const comparisonContext=data.comparisonContext==null?null:comparisonContextSchema.safeParse(data.comparisonContext);
+    if(comparisonContext&&!comparisonContext.success)return null;
     if (!design.success || !scope.success || context && !context.success || snapshots.some((item: { success: boolean }) => !item.success)) return null;
     return {
       design: design.data,
@@ -44,6 +48,7 @@ export function readDraft(raw: string | null, owner: string, fallbackScope: Scop
       intendedScope: scope.data,
       caseContext: context?.success ? context.data : null,
       legacy: data.version === 1,
+      ...(data.comparisonContext!==undefined?{comparisonContext:comparisonContext?.success?comparisonContext.data:null}:{}),
     };
   } catch {
     return null;

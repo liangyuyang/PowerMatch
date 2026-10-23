@@ -24,6 +24,7 @@ import {
   secretTarget,
   estimateCost,
   costCny,
+  aiBillingSchema,
   type AIConfig,
 } from "../src/shared/ai-config";
 import {
@@ -35,6 +36,7 @@ import {
 import { registerAIAdmin } from "./ai-admin";
 import { AI_IN_FLIGHT_LIMITS, AI_LEASE_SECONDS, expiredAIDiagnostic, recoverExpiredAIInvocations } from "./ai-recovery";
 import { hash } from "./security";
+import { AI_MAX_OUTPUT_TOKENS, budgetPredicate, hasCnyBudget, reconcileAIBudget, reserveAIUsage } from "./ai-budgets";
 export { modelConfigSchema, providers } from "../src/shared/ai-config";
 
 type Config = z.infer<typeof modelConfigSchema>;
@@ -161,7 +163,7 @@ export async function providerCall(
                     parts: [{ text: m.content }],
                   })),
                 generationConfig: {
-                  maxOutputTokens: 4096,
+                  maxOutputTokens: AI_MAX_OUTPUT_TOKENS,
                   responseMimeType: "application/json",
                 },
               }
@@ -169,8 +171,8 @@ export async function providerCall(
                 model: config.model,
                 messages,
                 ...(["minimax", "mimo"].includes(config.provider)
-                  ? { max_completion_tokens: 4096 }
-                  : { max_tokens: 4096 }),
+                  ? { max_completion_tokens: AI_MAX_OUTPUT_TOKENS }
+                  : { max_tokens: AI_MAX_OUTPUT_TOKENS }),
                 ...(config.provider === "minimax"
                   ? { reasoning_split: true }
                   : {}),
@@ -319,20 +321,34 @@ export async function invoke(
     start = Date.now();
   const leaseToken = crypto.randomUUID();
   const billing = await env.DB.prepare(
-    "SELECT settings_json FROM ai_settings WHERE id=1",
-  ).first<{ settings_json: string }>();
-  const usdToCny = JSON.parse(billing!.settings_json).usdToCny;
+    "SELECT settings_json,revision FROM ai_settings WHERE id=1",
+  ).first<{ settings_json: string; revision: number }>();
+  const billingConfig = aiBillingSchema.parse(JSON.parse(billing!.settings_json));
+  const usdToCny = billingConfig.usdToCny;
+  const reserved = reserveAIUsage(cfg, messages, usdToCny);
+  if (hasCnyBudget(billingConfig) && reserved.cny === null) return {
+    error: "ai-budget-pricing-required", status: 422,
+    diagnostic: { code: "ai-budget-pricing-required", stage: "reservation",
+      message: "已启用人民币预算，但此模型无法计算调用费用。",
+      suggestion: "请补齐已知按量单价和所需汇率，或关闭人民币预算。固定套餐费用不能换算为单次调用费用；Token 预算仍可独立使用。" },
+  };
+  const budget = budgetPredicate(billingConfig, user.id, reserved);
   const priceSnapshot = JSON.stringify({
     inputPrice: cfg.inputPrice, outputPrice: cfg.outputPrice,
     requestPrice: cfg.requestPrice, billingMode: cfg.billingMode,
     currency: cfg.currency, usdToCny,
     planFee: cfg.planFee, planPeriod: cfg.planPeriod,
     priceSource: cfg.priceSource, priceNote: cfg.priceNote,
+    settingsRevision: billing!.revision,
+    applicationReservation: { ...reserved, maxOutputTokens: AI_MAX_OUTPUT_TOKENS, policy: "bytes-plus-framing-v1" },
   });
   // A single SQL write reserves budget, including concurrent requests and failed calls.
   const reservation = await env.DB.prepare(
-    `INSERT INTO ai_invocations(id,user_id,model_id,model_name,provider,purpose,currency,price_snapshot,lease_token,lease_expires_at,request_id,request_hash)
-    SELECT ?,?,?,?,?,?,?,?,?,datetime('now',?),?,? WHERE
+    `INSERT INTO ai_invocations(id,user_id,model_id,model_name,provider,purpose,currency,price_snapshot,lease_token,lease_expires_at,request_id,request_hash,reserved_input_tokens,reserved_output_tokens,budget_tokens,budget_cny)
+    SELECT ?,?,?,?,?,?,?,?,?,datetime('now',?),?,?,?,?,?,? WHERE
+    (SELECT revision FROM ai_settings WHERE id=1)=?
+    AND EXISTS(SELECT 1 FROM ai_models WHERE id=? AND revision=? AND config_json=? AND (?='health' OR (enabled=1 AND health='ok')))
+    AND (${budget.sql}) AND
     (SELECT COUNT(*) FROM ai_invocations WHERE created_at >= datetime('now','+8 hours','start of day','-8 hours')) < 500
     AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','+8 hours','start of day','-8 hours')) < ?
     AND (SELECT COUNT(*) FROM ai_invocations WHERE user_id=? AND created_at >= datetime('now','-1 minute')) < ?
@@ -353,6 +369,16 @@ export async function invoke(
       `+${AI_LEASE_SECONDS} seconds`,
       request?.requestId ?? null,
       request?.requestHash ?? null,
+      reserved.input,
+      reserved.output,
+      reserved.tokens,
+      reserved.cny,
+      billing!.revision,
+      row.id,
+      row.revision,
+      row.config_json,
+      purpose,
+      ...budget.bindings,
       user.id,
       user.employee ? 80 : 10,
       user.id,
@@ -377,7 +403,16 @@ export async function invoke(
         suggestion: duplicate.status === "pending" ? "请等待原调用结束；超时后由管理员检查。" : "此处不缓存建议内容。核对原调用用量后，如需新建议请主动发起新请求，可能再次计费。",
       } };
     }
-    return { error: "ai-rate-limited", status: 429 };
+    const latestSettings = await env.DB.prepare("SELECT revision FROM ai_settings WHERE id=1").first<{ revision: number }>();
+    if (latestSettings?.revision !== billing!.revision) return { error: "config-conflict", status: 409 };
+    const currentModel = await env.DB.prepare("SELECT revision,config_json,enabled,health FROM ai_models WHERE id=?").bind(row.id).first<Row>();
+    if (!currentModel || currentModel.revision !== row.revision || currentModel.config_json !== row.config_json || (purpose !== "health" && (!currentModel.enabled || currentModel.health !== "ok")))
+      return { error: "config-conflict", status: 409 };
+    return { error: "ai-budget-or-rate-limited", status: 429, diagnostic: {
+      code: "ai-budget-or-rate-limited", stage: "reservation",
+      message: "调用频率、并发或预算余量不足。未知历史用量也会保守占用额度。",
+      suggestion: "请等待当前调用完成或额度周期更新；管理员可检查预算和未知账目。请求尚未发送给供应商。",
+    } };
   }
   let input: number | null = null,
     output: number | null = null,
@@ -404,12 +439,13 @@ export async function invoke(
       output = usage.output;
       // A rejected response with no usage is not evidence of billable work.
       cost = accepted || input !== null || output !== null ? estimateCost(cfg, input, output) : null;
+      const reconciled = reconcileAIBudget(cfg, usdToCny, reserved, input, output, costCny(cost, cfg.currency, usdToCny));
       stage = "storage";
       // A late response may enrich accounting for its original attempt, but
       // cannot revive an expired/recovered task or apply its business result.
       const saved = await env.DB.prepare(
-        "UPDATE ai_invocations SET input_tokens=?,output_tokens=?,estimated_cost=?,cost_cny=? WHERE id=? AND lease_token=? AND (status='pending' OR recovery_state='closed-without-retry') RETURNING status,lease_expires_at>CURRENT_TIMESTAMP AS active",
-      ).bind(input, output, cost, costCny(cost, cfg.currency, usdToCny), invocation, leaseToken).first<{ status: string; active: number }>();
+        "UPDATE ai_invocations SET input_tokens=?,output_tokens=?,estimated_cost=?,cost_cny=?,budget_tokens=?,budget_cny=? WHERE id=? AND lease_token=? AND (status='pending' OR recovery_state='closed-without-retry') RETURNING status,lease_expires_at>CURRENT_TIMESTAMP AS active",
+      ).bind(input, output, cost, costCny(cost, cfg.currency, usdToCny), reconciled.tokens, reconciled.cny, invocation, leaseToken).first<{ status: string; active: number }>();
       if (!saved || saved.status !== "pending" || !saved.active) throw new AIRequestError(expiredAIDiagnostic(invocation));
       stage = "request";
     });
@@ -445,7 +481,7 @@ export async function invoke(
       checkedAt: new Date().toISOString(),
     };
     const failed = await env.DB.prepare(
-      "UPDATE ai_invocations SET status='failed',error_code=?,input_tokens=?,output_tokens=?,estimated_cost=?,cost_cny=?,latency_ms=?,diagnostic_json=?,completed_at=CURRENT_TIMESTAMP,lease_token=NULL WHERE id=? AND status='pending' AND lease_token=? AND lease_expires_at>CURRENT_TIMESTAMP",
+      "UPDATE ai_invocations SET status='failed',error_code=?,input_tokens=?,output_tokens=?,estimated_cost=?,cost_cny=?,latency_ms=?,diagnostic_json=?,completed_at=CURRENT_TIMESTAMP,lease_token=NULL,budget_tokens=CASE WHEN request_started_at IS NULL THEN 0 ELSE budget_tokens END,budget_cny=CASE WHEN request_started_at IS NULL THEN 0 ELSE budget_cny END WHERE id=? AND status='pending' AND lease_token=? AND lease_expires_at>CURRENT_TIMESTAMP",
     )
       .bind(
         error,
@@ -516,7 +552,7 @@ export function registerAI(app: App) {
     ).first<{ revision: number; settings_json: string }>();
     return c.json({
       revision: settings!.revision,
-      billing: JSON.parse(settings!.settings_json),
+      billing: aiBillingSchema.parse(JSON.parse(settings!.settings_json)),
       providerKeys: Object.fromEntries(
         await Promise.all(
           Object.keys(providers).map(async (provider) => [
@@ -652,7 +688,7 @@ export function registerAI(app: App) {
     if (reply.status === 429) return err(reply.error!, 429);
     // Recovery/lease ownership is operational state, not evidence that the
     // model became unhealthy. A late callback must not change its health.
-    if (reply.error === "ai-lease-expired") return err(reply.error, 409, reply.diagnostic);
+    if (reply.error === "ai-lease-expired" || reply.error === "config-conflict" || reply.error === "ai-budget-pricing-required") return err(reply.error, reply.status, reply.diagnostic);
     const healthUpdate = await c.env.DB.prepare(
       "UPDATE ai_models SET health=?,is_default=CASE WHEN ?='ok' AND enabled=1 AND NOT EXISTS(SELECT 1 FROM ai_models WHERE is_default=1) THEN 1 ELSE is_default END,checked_at=CURRENT_TIMESTAMP,latency_ms=?,diagnostic_json=? WHERE id=? AND revision=?",
     )

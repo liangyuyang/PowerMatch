@@ -13,3 +13,6 @@ playwright-report/
 *.log
 .codex/
 output/
+
+# Reproducible same-origin OCR assets copied from pinned npm dependencies.
+public/ocr-assets/

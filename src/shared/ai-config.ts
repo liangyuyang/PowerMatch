@@ -1,4 +1,20 @@
 import { z } from "zod";
+const budgetLimitSchema = z.object({
+  tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().default(null),
+  cny: z.number().finite().min(0).max(1e9).nullable().default(null),
+}).strict();
+export const budgetScopes = ["globalDay", "globalMonth", "userDay", "userMonth"] as const;
+export const aiBudgetsSchema = z.object({
+  globalDay: budgetLimitSchema.default({ tokens: null, cny: null }),
+  globalMonth: budgetLimitSchema.default({ tokens: null, cny: null }),
+  userDay: budgetLimitSchema.default({ tokens: null, cny: null }),
+  userMonth: budgetLimitSchema.default({ tokens: null, cny: null }),
+}).strict();
+export const aiBillingSchema = z.object({
+  usdToCny: z.number().finite().min(0.01).max(100).nullable(),
+  budgets: aiBudgetsSchema.default(() => aiBudgetsSchema.parse({})),
+}).strict();
+export type AIBilling = z.infer<typeof aiBillingSchema>;
 export const providerSchema = z.enum([
   "deepseek",
   "gemini",

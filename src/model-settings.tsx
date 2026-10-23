@@ -4,6 +4,9 @@ import {
   modelConfigSchema,
   beijingTime,
   csvCell,
+  aiBillingSchema,
+  budgetScopes,
+  type AIBilling,
   type AIModel,
   type Provider,
 } from "./shared/ai-config";
@@ -31,6 +34,8 @@ const message = (e: unknown) => {
         "health-check-required": "先保存设置并完成健康检查，才能设为默认模型。",
         "missing-key": "尚未配置 API Key。",
         "ai-rate-limited": "已达到调用频率或额度限制，请稍后重试。",
+        "ai-budget-or-rate-limited": "调用频率、并发或预算余量不足；未知用量会保守占用额度。",
+        "ai-budget-pricing-required": "人民币预算要求已知的单次计费单价与汇率；固定套餐暂不支持人民币预算。",
         "key-storage-not-configured":
           "密钥至少需要 10 个字符，且服务端加密存储必须可用。",
         "provider-http-401": "密钥验证失败，请检查 Key、区域和套餐。",
@@ -169,9 +174,7 @@ const statusLabel = (s: string) =>
 export function AIAdmin({ locale }: { locale: Locale }) {
   const [settings, setSettings] = useState<any>(null),
     [models, setModels] = useState<AIModel[]>([]),
-    [billing, setBilling] = useState<{ usdToCny: number | null }>({
-      usdToCny: null,
-    });
+    [billing, setBilling] = useState<AIBilling>(() => aiBillingSchema.parse({ usdToCny: null }));
   const [rows, setRows] = useState<Usage[]>([]),
     [status, setStatus] = useState(""),
     [loadError, setLoadError] = useState(""),
@@ -209,7 +212,7 @@ export function AIAdmin({ locale }: { locale: Locale }) {
       const x = await api("");
       setSettings(x);
       setModels(x.models.map((m: AIModel) => ({ ...m, apiKey: "" })));
-      setBilling(x.billing);
+      setBilling(aiBillingSchema.parse(x.billing));
       if (!x.models.length) setApiOpen(true);
       await refreshUsage();
     } catch (e) {
@@ -278,6 +281,8 @@ export function AIAdmin({ locale }: { locale: Locale }) {
     setApiOpen(true);
   }
   async function save() {
+    const parsedBilling = aiBillingSchema.safeParse(billing);
+    if (!parsedBilling.success) throw Error("请检查汇率与预算：Token 为非负整数，人民币为非负数；留空表示关闭此项限制。");
     const payload = models.map((m) => {
       const parsed = modelConfigSchema.safeParse(configOf(m));
       if (!parsed.success)
@@ -295,13 +300,13 @@ export function AIAdmin({ locale }: { locale: Locale }) {
     });
     await api("/settings", {
       revision: settings.revision,
-      billing,
+      billing: parsedBilling.data,
       models: payload,
     });
     const x = await api("");
     setSettings(x);
     setModels(x.models.map((m: AIModel) => ({ ...m, apiKey: "" })));
-    setBilling(x.billing);
+    setBilling(aiBillingSchema.parse(x.billing));
     setStatus("模型设置已保存。API Key 不回显；留空保留已有 Key。");
     return x;
   }
@@ -996,6 +1001,7 @@ export function AIAdmin({ locale }: { locale: Locale }) {
             placeholder="未知请留空"
             onChange={(e) =>
               setBilling({
+                ...billing,
                 usdToCny: e.target.value === "" ? null : Number(e.target.value),
               })
             }
@@ -1003,6 +1009,36 @@ export function AIAdmin({ locale }: { locale: Locale }) {
         </label>
         <p className="ms-help">
           此汇率由管理员填写，仅用于后续调用；未知时美元费用保留原币种，人民币部分标为待确认，不改写历史账目。
+        </p>
+      </details>
+      <details className="ms-details">
+        <summary>应用预算保护 · Token 与人民币估算</summary>
+        <p className="ms-help">
+          按北京时间自然日、自然月重置。每项留空表示关闭，0 表示禁止新调用；所有用户包含管理员与健康检查，单用户限制适用于每位调用者。原有次数和并发上限仍生效。
+        </p>
+        <div className="ms-budget-grid">
+          {budgetScopes.map((scope) => (
+            <fieldset key={scope}>
+              <legend>{{ globalDay: "全站每日", globalMonth: "全站每月", userDay: "每位用户每日", userMonth: "每位用户每月" }[scope]}</legend>
+              {(["tokens", "cny"] as const).map((unit) => (
+                <label className="field" key={unit}>
+                  <span>{unit === "tokens" ? "输入 + 输出 Token 上限" : "人民币估算上限（CNY）"}</span>
+                  <input type="number" min="0" step={unit === "tokens" ? "1" : "any"}
+                    max={unit === "tokens" ? Number.MAX_SAFE_INTEGER : 1e9}
+                    disabled={busy} placeholder="留空关闭此项" value={billing.budgets[scope][unit] ?? ""}
+                    onChange={(e) => setBilling(current => ({ ...current, budgets: { ...current.budgets,
+                      [scope]: { ...current.budgets[scope], [unit]: e.target.value === "" ? null : Number(e.target.value) },
+                    } }))} />
+                </label>
+              ))}
+            </fieldset>
+          ))}
+        </div>
+        <p className="ms-help">
+          请求发出前原子预留输入字节估算与最多 4096 输出 Token，再按供应商返回用量核对；未知用量、超时和过期调用保留预留额度。未知历史账目会阻止相应已启用预算的新调用。仅确认请求未发出时释放预留。
+        </p>
+        <p className="ms-help">
+          这是应用侧保护，供应商分词、隐藏推理和账单规则可能不同，不能保证账单硬上限。人民币预算要求可计算的按量单价及汇率；固定 Token Plan 套餐费用不折成单次成本，启用人民币预算时这类调用会被明确阻止。Token 预算可独立使用。
         </p>
       </details>
       <details className="ms-details">

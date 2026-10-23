@@ -841,16 +841,23 @@ img[src*="MHO-C404"] {
   z-index: 50;
 }
 .modal {
+  --modal-pad: 26px;
   width: min(640px, 100%);
   max-height: 90vh;
   overflow: auto;
   background: white;
   border-radius: 12px;
   box-shadow: 0 20px 80px #14223b35;
-  padding: 26px;
+  padding: var(--modal-pad);
 }
-.modal .section-title {
-  margin-bottom: 16px;
+.modal > .section-title {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: calc(-1 * var(--modal-pad)) calc(-1 * var(--modal-pad)) 16px;
+  padding: 16px var(--modal-pad);
+  background: white;
+  border-bottom: 1px solid #d5deed;
 }
 .modal .section-title h2 {
   margin: 0;
@@ -1013,7 +1020,7 @@ summary {
     width: 14px;
   }
   .modal {
-    padding: 20px;
+    --modal-pad: 20px;
   }
   .toolbar button {
     font-size: 12px;
@@ -1371,3 +1378,9 @@ summary {
 .component-parameters summary { cursor: pointer; }
 .component-parameters textarea { min-height: 130px; }
 @media (max-width: 600px) { .parameter-grid { grid-template-columns: 1fr; } }
+
+.spec-evidence-editor fieldset { min-width: 0; margin: 16px 0; border: 1px solid var(--line, #d5deed); border-radius: 10px; padding: 16px; overflow-wrap: anywhere; }
+.spec-evidence-editor legend { padding: 0 6px; max-width: 100%; }
+.spec-evidence-editor textarea { min-height: 80px; }
+.spec-extraction { min-width: 0; margin-top: 18px; }
+.spec-extraction li { overflow-wrap: anywhere; }

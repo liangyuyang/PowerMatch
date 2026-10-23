@@ -3,9 +3,9 @@ import { hash } from "./security";
 
 // Keep this policy in sync with public/_headers (assets bypass the Worker).
 // React/Recharts use style attributes; scripts allow this origin and the existing
-// Cloudflare-injected performance beacon only (no inline/eval exceptions).
+// Cloudflare-injected performance beacon only (no inline scripts or JavaScript eval; WASM is used by local OCR).
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+  "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 export function protectApiResponse(response: Response) {
   const headers = new Headers(response.headers);

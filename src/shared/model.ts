@@ -1,4 +1,5 @@
 import { z } from "zod";
+import {fieldEvidenceListSchema} from "./spec-evidence.ts";
 const finite = (min: number, max: number) =>
   z.number().finite().min(min).max(max);
 const optional = (min: number, max: number) => finite(min, max).nullable();
@@ -9,6 +10,7 @@ export const componentEvidenceSchema = z.object({
   adoptedSpec: z.string().max(100).nullable(), versionId: z.string().max(160),
   recordedAt: z.string().max(80), origin: z.string().max(80),
   specSha256: z.string().max(64).nullable().optional(), specFilename:z.string().max(180).nullable().optional(),
+  fieldEvidence:fieldEvidenceListSchema.optional(),
   reviewId:z.string().max(100).nullable().optional(),reviewRevision:z.number().int().nonnegative().nullable().optional(),
 });
 export const phaseSchema = z.object({
@@ -138,6 +140,7 @@ export interface Component {
   version_id?: string | null;
   version_recorded_at?: string;
   version_origin?: string;
+  version_snapshot?: Partial<z.infer<typeof componentEvidenceSchema>>;
 }
 export const DEFAULT_DESIGN: Design = {
   name: "穿山甲Tiny · 光伏改型",
