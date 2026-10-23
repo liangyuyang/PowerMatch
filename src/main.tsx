@@ -720,6 +720,7 @@ function App() {
   };
   useEffect(() => {
     const openLinked = () => {
+      if (!sessionReady||sessionUnavailable||authPending||draftOwner!==identity) return;
       if (!location.hash.startsWith("#component=")) return;
       let id: string;
       try {
@@ -737,7 +738,7 @@ function App() {
     openLinked();
     window.addEventListener("hashchange", openLinked);
     return () => window.removeEventListener("hashchange", openLinked);
-  }, [components]);
+  }, [components,sessionReady,sessionUnavailable,authPending,draftOwner,identity]);
   const useComponent = (c: Component) => {
     if (!canUseComponent(c)) {
       setNotice(bi("该条目仅供查看资料，暂不能放入供电路径。", "This entry is for reference and cannot be added to the energy path yet."));

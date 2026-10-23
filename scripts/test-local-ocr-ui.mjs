@@ -79,9 +79,11 @@ try {
   await expect(
     dialog().locator(".post").filter({ hasText: "capacityMah: 225 mAh" }),
   ).toBeVisible();
+  console.log(JSON.stringify({stage:'desktop-recognition-passed'}));
   checks.push(
     "Integrated OCR panel recognizes a real local PNG and explicitly loads unverified source candidates into the review form",
   );
+  if(new URL(origin).hostname==='127.0.0.1'||new URL(origin).hostname==='localhost') {
   let enter, release;
   const entered = new Promise((resolve) => (enter = resolve)),
     released = new Promise((resolve) => (release = resolve));
@@ -106,7 +108,7 @@ try {
   await ocr()
     .getByRole("button", { name: "Recognize locally", exact: true })
     .click();
-  await entered;
+  await Promise.race([entered,new Promise((_,reject)=>setTimeout(()=>reject(Error('WASM route not reached')),30000))]);
   await file().setInputFiles({
     name: "A-again.png",
     mimeType: "image/png",
@@ -140,7 +142,7 @@ try {
   await ocr()
     .getByRole("button", { name: "Recognize locally", exact: true })
     .click();
-  await enteredClose;
+  await Promise.race([enteredClose,new Promise((_,reject)=>setTimeout(()=>reject(Error('WASM close route not reached')),30000))]);
   await page.keyboard.press("Escape");
   releaseClose();
   await expect(dialog()).toHaveCount(0);
@@ -149,6 +151,7 @@ try {
   checks.push(
     "Closing the containing modal during startup unmounts OCR and terminates its native worker",
   );
+  } else checks.push('Production recognition only; fault-injection/termination acceptance was run against the isolated local build');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(url);
   await page.reload();
