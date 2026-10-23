@@ -71,7 +71,7 @@ try {
       name: "Load candidates for review",
       exact: true,
     }),
-  ).toBeEnabled({ timeout: 30000 });
+  ).toBeEnabled({ timeout: 180000 });
   await expect(ocr()).toContainText("capacityMah: 225 mAh");
   await ocr()
     .getByRole("button", { name: "Load candidates for review", exact: true })
@@ -166,7 +166,7 @@ try {
       name: "Load candidates for review",
       exact: true,
     }),
-  ).toBeEnabled({ timeout: 30000 });
+  ).toBeEnabled({ timeout: 180000 });
   assert.ok(
     await ocr().evaluate(
       (element) => element.getBoundingClientRect().right <= innerWidth + 1,

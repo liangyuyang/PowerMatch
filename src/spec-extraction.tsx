@@ -138,6 +138,7 @@ export function SpecExtraction({
           "Images and scanned PDFs are recognized in this browser using same-site OCR assets. Files are not uploaded to an external service. Images: 16 MP maximum; recognition canvas: 4 MP. PDFs: 5 MB / 20 pages maximum, one page per run, with a 5-minute timeout.",
         )}
       </p>
+      <p className="caption">{bi('首次识别需要下载本地识别程序与所选语言包，网络较慢时可能超过一分钟；页面会显示加载阶段，可随时取消。再次使用可利用浏览器缓存。','The first run downloads the recognition engine and selected language data. On a slow connection this can take over a minute; the loading stage remains visible and you can cancel at any time. Later runs can use browser caching.')}</p>
       <label className="field">
         <span>{bi("识别语言", "Recognition language")}</span>
         <select
