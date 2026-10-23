@@ -1,0 +1,64 @@
+{
+  "checkedAt": "2026-10-23T15:07:10Z",
+  "version": {
+    "version": "V0.1.38",
+    "revision": "d565cbc",
+    "date": "2026.10.23"
+  },
+  "checks": [
+    {
+      "path": "/api/comparisons",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "path": "/api/comparisons/not-present",
+      "method": "GET",
+      "status": 404
+    },
+    {
+      "path": "/api/admin/maintenance",
+      "method": "POST",
+      "status": 403
+    },
+    {
+      "path": "/api/admin/ai/settings",
+      "method": "POST",
+      "status": 403
+    }
+  ],
+  "ocr": {
+    "version": "tesseract-7.0.0-core-7.0.0-data-1.0.0-best-int",
+    "manifestFiles": 30,
+    "workerStatus": 200,
+    "cache": "public, max-age=31536000, immutable",
+    "productionSyntheticPNG": {
+      "result": "passed",
+      "capacityMah": 225,
+      "voltage": 3,
+      "characterConfidence": 92,
+      "navigationToCandidatesMs": 39891,
+      "downloadSamplesPercent": [
+        38,
+        86
+      ],
+      "pendingOCRRequests": 0,
+      "realManufacturerAcceptance": false
+    }
+  },
+  "productionAuthenticatedWrites": 0,
+  "realAIRequests": 0,
+  "emailsSent": 0,
+  "workerVersion": "06497040-76a9-4deb-8b06-fe776a8d0284",
+  "unitTests": 272,
+  "ci": "https://github.com/liangyuyang/PowerMatch/actions/runs/39974894715",
+  "databasePostflight": {
+    "components": 41,
+    "componentVersions": 41,
+    "specs": 0,
+    "specReviews": 0,
+    "caseRevisions": 2,
+    "comparisons": 0,
+    "migrations": 16
+  }
+}

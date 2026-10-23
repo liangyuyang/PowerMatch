@@ -1,5 +1,22 @@
 # PowerMatch implementation handoff
 
+## Current checkpoint — 2026-10-23, Phase 4
+
+- Project: PowerMatch, D:/Data/GitHub/PowerMatch; machine Home PC / HOMEPC; branch main; remote https://github.com/liangyuyang/PowerMatch.git.
+- Deployed: **V0.1.38 · 2026.10.23**, source **d565cbc**, engine0.1.1; Worker **06497040-76a9-4deb-8b06-fe776a8d0284**, https://powermatch.zenmeasure.space. Later documentation commits do not redeploy unchanged artifacts.
+- Completed: optional AI token/CNY budgets with atomic conservative reservations; immutable cloud comparison collections and actor/source-scope checks; leased frozen-payload mail recovery within23h/max3; immutable per-field Spec page/unit/excerpt/conditions; seven-language local PNG/scanned-PDF OCR; cancellable byte-level language download progress; selected-parts BOM CSV; pinned evidence in reports; sticky modal close controls and session-ready component deep links.
+- Verification:272 unit tests/17 files, type/build,49 isolated native D1 API assertions; budget mock admin,6 comparison groups,7 Spec workflow groups,5 session timing groups, real local PNG/scanned-PDF/cancel and built desktop/mobile/CSP; BOM28 independent tests. Independent review gpt-6-astra/high, implementation/complex QA gpt-6.1-sol/high. Main model not changed. GitHub actual green: https://github.com/liangyuyang/PowerMatch/actions/runs/39974894715 .
+- Production: final version/API/header/calculation/PDF/BOM/mobile checks pass. Single synthetic PNG225mAh/3V recognized with character confidence92; about40s navigation-to-result and visible38%→86% byte progress, no pending downloads. Prior30s/180s OCR assertions failed; independent ready-session trace succeeded33.3s, and related deep-link initialization race was fixed/tested. No universal performance or real-manufacturer OCR acceptance is claimed.
+- Database: context guard matched account bc2ac4bad6f535fcde57fa10a22f131b, D1 powermatch-db/c616a8ac-15d8-4bfa-ba6d-64e8b6e3e957, R2 powermatch-specs. Migrations0013–0016 applied after private Time Travel bookmark. Independent postflight41 components/41 versions/0 Specs/0 reviews/2 original revisions/0 comparison fixtures,16 migrations. Secrets preserved. No production login/private-case fixtures, actual paid AI or emails.
+- Limits: budgets are application estimates, not exact provider billing; unknown history can block enabled limits. Email recovery is on processing/admin maintenance, no new Cron. OCR/quotes/SHA do not authenticate engineering claims; PDF caps do not fully isolate hostile decompression. Selection BOM is not a complete circuit BOM/KiCad schematic. Tesseract7 pinned initializer adapter is deliberately narrow and must be reviewed on dependency upgrades.
+- Next: continue approved full technical localization, measured chart/main-thread performance work, calibrated component/default-combination search and richer engineering models. Actual battery/PV curves, MHO-C404 load and pin/topology data remain separate validation dependencies; KiCad/ERC, notification preferences/moderation and app-license choice are unfinished. Do not treat those data gaps as blockers for independent software tasks.
+- Rollback: preserve immutable Spec/source history, AI budgets/leases and frozen mail idempotency contracts; do not restore the old blind mail retry or budget-bypassing writers. Details: docs/audits/2026-10-23-phase4-delivery.md, docs/ocr-and-evidence.md, docs/phase4-operations.md.
+- Handoff: synchronize only this project page through an isolated origin/main Obsidian worktree and append the same confirmed checkpoint in the primary dirty/diverged vault. Preserve unrelated changes. No new permanent cross-project rule or recurring automation was inferred.
+
+---
+
+## Earlier checkpoints
+
 Date: 2026-09-12 (Beijing). Machine: Home PC / HOMEPC.
 Project: D:/Data/GitHub/PowerMatch. Branch: main. Remote: https://github.com/liangyuyang/PowerMatch.git.
 
